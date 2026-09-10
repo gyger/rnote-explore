@@ -22,10 +22,12 @@ use crate::Image;
 use crate::document::Layout;
 use crate::pens::PenMode;
 use crate::pens::{Pen, PenStyle};
+use crate::smartink;
 use crate::store::StrokeKey;
 use crate::store::render_comp::{self, RenderCompState};
 use crate::strokes::content::GeneratedContentImages;
 use crate::strokes::textstroke::{TextAttribute, TextStyle};
+use crate::strokes::{BrushStroke, Stroke};
 use crate::{Camera, Document, PenHolder, StrokeStore};
 use crate::{SelectionCollision, WidgetFlags};
 use futures::StreamExt;
@@ -214,6 +216,9 @@ pub struct Engine {
     #[cfg(feature = "ui")]
     #[serde(skip)]
     origin_indicator_rendernode: Option<gtk4::gsk::RenderNode>,
+    // Smart ink refiner, configured through the environment
+    #[serde(skip)]
+    smartink: Option<Box<dyn smartink::Refiner>>,
 }
 
 impl Default for Engine {
@@ -238,6 +243,7 @@ impl Default for Engine {
             origin_indicator_image: None,
             #[cfg(feature = "ui")]
             origin_indicator_rendernode: None,
+            smartink: smartink::from_env(),
         }
     }
 }
@@ -799,6 +805,66 @@ impl Engine {
             | self.update_rendering_current_viewport()
     }
 
+    /// Replace the selected brush strokes with refined ones from the smart ink refiner.
+    ///
+    /// Leaves the document untouched on any error. One undo step restores the originals.
+    pub fn refine_selection(&mut self) -> WidgetFlags {
+        let Some(refiner) = self.smartink.as_mut() else {
+            error!(
+                "no smart ink refiner configured, set {}",
+                smartink::REFINER_CMD_ENV
+            );
+            return WidgetFlags::default();
+        };
+
+        let keys = self.store.selection_keys_as_rendered();
+        let brushes: Vec<(StrokeKey, &BrushStroke)> = self
+            .store
+            .get_strokes_ref(&keys)
+            .into_iter()
+            .zip(keys.iter())
+            .filter_map(|(stroke, &key)| match stroke {
+                Stroke::BrushStroke(brush) => Some((key, brush)),
+                _ => None,
+            })
+            .collect();
+        let Some((_, first)) = brushes.first() else {
+            return WidgetFlags::default();
+        };
+
+        // All refined strokes inherit the style of the first original.
+        let style = first.style.clone();
+        let ink = brushes
+            .iter()
+            .map(|(_, brush)| smartink::convert::ink_from_brush(brush))
+            .collect();
+        let brush_keys: Vec<StrokeKey> = brushes.into_iter().map(|(key, _)| key).collect();
+
+        let refined = match refiner.refine(smartink::DEFAULT_STRENGTH, ink) {
+            Ok(refined) => refined,
+            Err(e) => {
+                error!("refining selection failed, Err: {e:?}");
+                return WidgetFlags::default();
+            }
+        };
+        let new_strokes: Vec<Stroke> = refined
+            .iter()
+            .filter_map(|ink| smartink::convert::brush_from_ink(ink, style.clone()))
+            .map(Stroke::BrushStroke)
+            .collect();
+        if new_strokes.is_empty() {
+            error!("refiner returned no usable strokes");
+            return WidgetFlags::default();
+        }
+
+        let new_keys = self.store.replace_strokes(&brush_keys, new_strokes);
+        self.store.update_geometry_for_strokes(&new_keys);
+        self.current_pen_update_state()
+            | self.doc_resize_autoexpand()
+            | self.record(Instant::now())
+            | self.update_rendering_current_viewport()
+    }
+
     pub fn nothing_selected(&self) -> bool {
         self.store.selection_keys_unordered().is_empty()
     }
@@ -909,5 +975,61 @@ impl Engine {
     pub fn current_pen_style_w_override(&self) -> PenStyle {
         self.penholder
             .current_pen_style_w_override(&engine_view!(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::smartink::passthrough::PassthroughRefiner;
+    use rnote_compose::penpath::Element;
+    use rnote_compose::{PenPath, Style};
+
+    fn zigzag() -> Stroke {
+        let path = PenPath::try_from_elements(
+            (0..5).map(|i| Element::new(Vector2::new(f64::from(i), f64::from(i % 2)), 0.5)),
+        )
+        .unwrap();
+        Stroke::BrushStroke(BrushStroke::from_penpath(path, Style::default()))
+    }
+
+    fn engine_with_selected_zigzag() -> (Engine, StrokeKey) {
+        let mut engine = Engine::default();
+        let key = engine.store.insert_stroke(zigzag(), None);
+        engine.store.set_selected(key, true);
+        let _ = engine.record(Instant::now());
+        (engine, key)
+    }
+
+    #[test]
+    fn refine_replaces_selection_and_undo_restores() {
+        let (mut engine, key) = engine_with_selected_zigzag();
+        engine.smartink = Some(Box::new(PassthroughRefiner));
+        let original = serde_json::to_value(engine.store.get_stroke_ref(key).unwrap()).unwrap();
+
+        let _ = engine.refine_selection();
+
+        let after = engine.store.stroke_keys_as_rendered();
+        assert_eq!(after.len(), 1);
+        assert_ne!(after[0], key);
+        assert_eq!(engine.store.selection_keys_as_rendered(), after);
+        let refined = serde_json::to_value(engine.store.get_stroke_ref(after[0]).unwrap()).unwrap();
+        assert_eq!(refined, original);
+
+        let _ = engine.undo(Instant::now());
+        assert_eq!(engine.store.stroke_keys_as_rendered(), vec![key]);
+        let restored = serde_json::to_value(engine.store.get_stroke_ref(key).unwrap()).unwrap();
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn refine_without_refiner_changes_nothing() {
+        let (mut engine, key) = engine_with_selected_zigzag();
+        engine.smartink = None;
+
+        let _ = engine.refine_selection();
+
+        assert_eq!(engine.store.stroke_keys_as_rendered(), vec![key]);
+        assert_eq!(engine.store.selection_keys_as_rendered(), vec![key]);
     }
 }

@@ -89,6 +89,8 @@ impl RnAppWindow {
         self.add_action(&action_selection_trash);
         let action_selection_duplicate = gio::SimpleAction::new("selection-duplicate", None);
         self.add_action(&action_selection_duplicate);
+        let action_selection_refine = gio::SimpleAction::new("selection-refine", None);
+        self.add_action(&action_selection_refine);
         let action_selection_invert_color = gio::SimpleAction::new("selection-invert-color", None);
         self.add_action(&action_selection_invert_color);
         let action_selection_select_all = gio::SimpleAction::new("selection-select-all", None);
@@ -506,6 +508,19 @@ impl RnAppWindow {
                     return;
                 };
                 let widget_flags = canvas.engine_mut().duplicate_selection();
+                appwindow.handle_widget_flags(widget_flags, &canvas);
+            }
+        ));
+
+        // Refine Selection (smart ink)
+        action_selection_refine.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                let Some(canvas) = appwindow.active_tab_canvas() else {
+                    return;
+                };
+                let widget_flags = canvas.engine_mut().refine_selection();
                 appwindow.handle_widget_flags(widget_flags, &canvas);
             }
         ));

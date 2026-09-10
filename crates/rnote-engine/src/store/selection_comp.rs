@@ -97,6 +97,26 @@ impl StrokeStore {
     /// Duplicate the selected keys.
     ///
     /// The returned, duplicated strokes then need to update their geometry and rendering.
+    /// Trash `old` and insert `new` as the new selection. Returns the inserted keys.
+    ///
+    /// The new strokes need a rendering update.
+    pub(crate) fn replace_strokes(
+        &mut self,
+        old: &[StrokeKey],
+        new: Vec<Stroke>,
+    ) -> Vec<StrokeKey> {
+        self.set_selected_keys(old, false);
+        self.set_trashed_keys(old, true);
+
+        new.into_iter()
+            .map(|stroke| {
+                let key = self.insert_stroke(stroke, None);
+                self.set_selected(key, true);
+                key
+            })
+            .collect()
+    }
+
     pub(crate) fn duplicate_selection(&mut self) -> Vec<StrokeKey> {
         let old_selected = self.selection_keys_as_rendered();
         self.set_selected_keys(&old_selected, false);

@@ -106,6 +106,16 @@
           </object>
         </child>
         <child>
+          <object class="GtkButton" id="selection_refine_button">
+            <property name="tooltip_text" translatable="yes">Refine Selected Ink</property>
+            <property name="action-name">win.selection-refine</property>
+            <property name="icon-name">pen-brush-style-marker-symbolic</property>
+            <style>
+              <class name="flat" />
+            </style>
+          </object>
+        </child>
+        <child>
           <object class="GtkButton" id="selection_delete_button">
             <property name="tooltip_text" translatable="yes">Delete Selection</property>
             <property name="action-name">win.selection-trash</property>
