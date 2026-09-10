@@ -91,6 +91,8 @@ impl RnAppWindow {
         self.add_action(&action_selection_duplicate);
         let action_selection_refine = gio::SimpleAction::new("selection-refine", None);
         self.add_action(&action_selection_refine);
+        let action_selection_dump_ink = gio::SimpleAction::new("selection-dump-ink", None);
+        self.add_action(&action_selection_dump_ink);
         let action_selection_invert_color = gio::SimpleAction::new("selection-invert-color", None);
         self.add_action(&action_selection_invert_color);
         let action_selection_select_all = gio::SimpleAction::new("selection-select-all", None);
@@ -522,6 +524,38 @@ impl RnAppWindow {
                 };
                 let widget_flags = canvas.engine_mut().refine_selection();
                 appwindow.handle_widget_flags(widget_flags, &canvas);
+            }
+        ));
+
+        // Dump selected ink to a JSON file (smart ink dataset collection)
+        action_selection_dump_ink.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                let Some(canvas) = appwindow.active_tab_canvas() else {
+                    return;
+                };
+                let Some(json) = canvas.engine_ref().selection_ink_dump() else {
+                    appwindow.overlays().dispatch_toast_text(
+                        &gettext("No brush strokes selected"),
+                        crate::overlays::TEXT_TOAST_TIMEOUT_DEFAULT,
+                    );
+                    return;
+                };
+                match write_ink_dump(&json) {
+                    Ok(path) => {
+                        appwindow.overlays().dispatch_toast_text(
+                            &format!("{} {}", gettext("Ink saved to"), path.display()),
+                            crate::overlays::TEXT_TOAST_TIMEOUT_DEFAULT,
+                        );
+                    }
+                    Err(e) => {
+                        error!("dumping ink failed, Err: {e:?}");
+                        appwindow
+                            .overlays()
+                            .dispatch_toast_error(&gettext("Saving ink failed"));
+                    }
+                }
             }
         ));
 
@@ -1541,4 +1575,18 @@ async fn collect_clipboard_data(input_stream: InputStream) -> Vec<u8> {
         }
     }
     acc
+}
+
+/// Write an ink dump into the directory given by the smart ink dump env var.
+fn write_ink_dump(json: &str) -> anyhow::Result<std::path::PathBuf> {
+    let dir = std::env::var(rnote_engine::smartink::DUMP_DIR_ENV)
+        .map(std::path::PathBuf::from)
+        .map_err(|_| anyhow::anyhow!("{} not set", rnote_engine::smartink::DUMP_DIR_ENV))?;
+    std::fs::create_dir_all(&dir)?;
+
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
+    let path = dir.join(format!("ink-{stamp}.json"));
+    std::fs::write(&path, json)?;
+
+    Ok(path)
 }

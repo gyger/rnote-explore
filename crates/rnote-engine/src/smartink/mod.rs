@@ -27,6 +27,9 @@ use tracing::{info, warn};
 /// `uv run --project <path> refiner serve`.
 pub const REFINER_CMD_ENV: &str = "RNOTE_SMARTINK_CMD";
 
+/// Directory where `selection-dump-ink` writes ink dumps for dataset collection.
+pub const DUMP_DIR_ENV: &str = "RNOTE_SMARTINK_DUMP_DIR";
+
 /// Regularization applied when the UI has no slider yet. 0.0 = untouched, 1.0 = maximal.
 pub const DEFAULT_STRENGTH: f64 = 0.3;
 

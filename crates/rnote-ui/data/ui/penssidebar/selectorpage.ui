@@ -116,6 +116,16 @@
           </object>
         </child>
         <child>
+          <object class="GtkButton" id="selection_dump_ink_button">
+            <property name="tooltip_text" translatable="yes">Save Selected Ink as JSON</property>
+            <property name="action-name">win.selection-dump-ink</property>
+            <property name="icon-name">save-symbolic</property>
+            <style>
+              <class name="flat" />
+            </style>
+          </object>
+        </child>
+        <child>
           <object class="GtkButton" id="selection_delete_button">
             <property name="tooltip_text" translatable="yes">Delete Selection</property>
             <property name="action-name">win.selection-trash</property>

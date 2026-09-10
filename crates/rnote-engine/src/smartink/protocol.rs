@@ -61,6 +61,30 @@ impl RefineRequest {
     }
 }
 
+/// Strokes saved to disk for dataset collection. Same stroke format as requests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InkDump {
+    pub version: u32,
+    /// Seconds since the Unix epoch, when the dump was taken.
+    pub created: u64,
+    pub strokes: Vec<InkStroke>,
+}
+
+impl InkDump {
+    pub fn new(strokes: Vec<InkStroke>) -> Self {
+        let created = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+
+        Self {
+            version: PROTOCOL_VERSION,
+            created,
+            strokes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RefineResponse {
     pub version: u32,

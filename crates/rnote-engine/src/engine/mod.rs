@@ -805,21 +805,10 @@ impl Engine {
             | self.update_rendering_current_viewport()
     }
 
-    /// Replace the selected brush strokes with refined ones from the smart ink refiner.
-    ///
-    /// Leaves the document untouched on any error. One undo step restores the originals.
-    pub fn refine_selection(&mut self) -> WidgetFlags {
-        let Some(refiner) = self.smartink.as_mut() else {
-            error!(
-                "no smart ink refiner configured, set {}",
-                smartink::REFINER_CMD_ENV
-            );
-            return WidgetFlags::default();
-        };
-
+    /// Selected brush strokes in rendered order. Other stroke kinds are skipped.
+    fn selected_brushes(&self) -> Vec<(StrokeKey, &BrushStroke)> {
         let keys = self.store.selection_keys_as_rendered();
-        let brushes: Vec<(StrokeKey, &BrushStroke)> = self
-            .store
+        self.store
             .get_strokes_ref(&keys)
             .into_iter()
             .zip(keys.iter())
@@ -827,7 +816,36 @@ impl Engine {
                 Stroke::BrushStroke(brush) => Some((key, brush)),
                 _ => None,
             })
+            .collect()
+    }
+
+    /// Selected brush strokes as a JSON ink dump for dataset collection. `None` if none selected.
+    pub fn selection_ink_dump(&self) -> Option<String> {
+        let strokes: Vec<_> = self
+            .selected_brushes()
+            .into_iter()
+            .map(|(_, brush)| smartink::convert::ink_from_brush(brush))
             .collect();
+        if strokes.is_empty() {
+            return None;
+        }
+
+        serde_json::to_string(&smartink::protocol::InkDump::new(strokes)).ok()
+    }
+
+    /// Replace the selected brush strokes with refined ones from the smart ink refiner.
+    ///
+    /// Leaves the document untouched on any error. One undo step restores the originals.
+    pub fn refine_selection(&mut self) -> WidgetFlags {
+        if self.smartink.is_none() {
+            error!(
+                "no smart ink refiner configured, set {}",
+                smartink::REFINER_CMD_ENV
+            );
+            return WidgetFlags::default();
+        }
+
+        let brushes = self.selected_brushes();
         let Some((_, first)) = brushes.first() else {
             return WidgetFlags::default();
         };
@@ -840,6 +858,9 @@ impl Engine {
             .collect();
         let brush_keys: Vec<StrokeKey> = brushes.into_iter().map(|(key, _)| key).collect();
 
+        let Some(refiner) = self.smartink.as_mut() else {
+            return WidgetFlags::default();
+        };
         let refined = match refiner.refine(smartink::DEFAULT_STRENGTH, ink) {
             Ok(refined) => refined,
             Err(e) => {
@@ -1020,6 +1041,18 @@ mod tests {
         assert_eq!(engine.store.stroke_keys_as_rendered(), vec![key]);
         let restored = serde_json::to_value(engine.store.get_stroke_ref(key).unwrap()).unwrap();
         assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn ink_dump_contains_selected_strokes() {
+        let (engine, _) = engine_with_selected_zigzag();
+
+        let dump: serde_json::Value =
+            serde_json::from_str(&engine.selection_ink_dump().unwrap()).unwrap();
+
+        assert_eq!(dump["strokes"].as_array().unwrap().len(), 1);
+        assert_eq!(dump["strokes"][0]["points"].as_array().unwrap().len(), 5);
+        assert!(Engine::default().selection_ink_dump().is_none());
     }
 
     #[test]
