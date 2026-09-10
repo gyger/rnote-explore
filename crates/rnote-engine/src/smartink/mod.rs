@@ -45,8 +45,9 @@ pub fn from_env() -> Option<Box<dyn Refiner>> {
     let command_line = std::env::var(REFINER_CMD_ENV).ok()?;
 
     match subprocess::SubprocessRefiner::new(&command_line) {
-        Ok(refiner) => {
+        Ok(mut refiner) => {
             info!("smart ink refiner: `{command_line}`");
+            refiner.warm_up();
             Some(Box::new(refiner))
         }
         Err(e) => {
