@@ -3,6 +3,7 @@ use crate::WidgetFlags;
 use crate::engine::Engine;
 use crate::pens::{PenMode, PenStyle};
 use crate::zoomwindow::{BoxScale, BoxShift, LineStart};
+use p2d::bounding_volume::BoundingVolume;
 use p2d::math::Vector2;
 use rnote_compose::eventresult::EventPropagation;
 use rnote_compose::penevent::PenEvent;
@@ -23,7 +24,7 @@ impl Engine {
     }
 
     pub fn zoom_window_shift_box(&mut self, shift: BoxShift) -> WidgetFlags {
-        self.zoom_window.shift_box(shift, &self.document)
+        self.zoom_window.shift_box(shift, &self.document) | self.reveal_zoom_box()
     }
 
     pub fn zoom_window_scale_box(&mut self, scale: BoxScale) -> WidgetFlags {
@@ -32,7 +33,7 @@ impl Engine {
     }
 
     pub fn zoom_window_new_line(&mut self) -> WidgetFlags {
-        self.zoom_window.new_line(&self.document)
+        self.zoom_window.new_line(&self.document) | self.reveal_zoom_box()
     }
 
     pub fn zoom_window_set_auto_advance(&mut self, auto_advance: bool) -> WidgetFlags {
@@ -74,9 +75,40 @@ impl Engine {
         );
         if let Some(pos) = stroke_end {
             widget_flags |= self.zoom_window.advance_after_stroke(pos, &self.document);
+            widget_flags |= self.reveal_zoom_box();
         }
 
         (propagation, widget_flags)
+    }
+
+    /// Scroll the main view so the whole box is visible, if it is not already.
+    ///
+    /// Writing in the panel moves the box across the page; the page should follow.
+    pub fn reveal_zoom_box(&mut self) -> WidgetFlags {
+        const MARGIN: f64 = 24.0;
+        let viewport = self.camera.viewport();
+        let bounds = self.zoom_window.box_bounds().loosened(MARGIN);
+        if viewport.contains(&bounds) {
+            return WidgetFlags::default();
+        }
+
+        // Smallest shift that brings the box inside, per axis.
+        let shift = Vector2::new(
+            axis_shift(
+                viewport.mins[0],
+                viewport.maxs[0],
+                bounds.mins[0],
+                bounds.maxs[0],
+            ),
+            axis_shift(
+                viewport.mins[1],
+                viewport.maxs[1],
+                bounds.mins[1],
+                bounds.maxs[1],
+            ),
+        );
+        let offset = self.camera.offset() + shift * self.camera.total_zoom();
+        self.camera.set_offset(offset, &self.document)
     }
 
     /// Draw the panel content: the document inside the box, magnified.
@@ -134,5 +166,47 @@ impl Engine {
 
         snapshot.pop();
         Ok(())
+    }
+}
+
+/// Shift of a view interval so that a target interval fits, 0.0 if it already does.
+fn axis_shift(view_min: f64, view_max: f64, target_min: f64, target_max: f64) -> f64 {
+    if target_min < view_min {
+        return target_min - view_min;
+    }
+    if target_max > view_max {
+        return target_max - view_max;
+    }
+    0.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p2d::bounding_volume::BoundingVolume;
+
+    #[test]
+    fn reveal_scrolls_to_box() {
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        let _ = engine.zoom_window.set_visible(true);
+        let far = Vector2::new(400.0, 3000.0);
+        let _ = engine.zoom_window.move_box_to(far, &engine.document);
+        assert!(
+            !engine
+                .camera
+                .viewport()
+                .contains(&engine.zoom_window.box_bounds())
+        );
+
+        let widget_flags = engine.reveal_zoom_box();
+
+        assert!(widget_flags.view_modified);
+        assert!(
+            engine
+                .camera
+                .viewport()
+                .contains(&engine.zoom_window.box_bounds())
+        );
     }
 }
