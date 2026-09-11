@@ -6,7 +6,10 @@ pub(crate) use zoomcanvas::RnZoomCanvas;
 
 // Imports
 use crate::RnCanvas;
-use gtk4::{CompositeTemplate, Widget, glib, prelude::*, subclass::prelude::*};
+use gtk4::{
+    CompositeTemplate, SpinButton, ToggleButton, Widget, glib, glib::clone, prelude::*,
+    subclass::prelude::*,
+};
 
 mod imp {
     use super::*;
@@ -17,6 +20,10 @@ mod imp {
     pub(crate) struct RnZoomWindow {
         #[template_child]
         pub(crate) zoomcanvas: TemplateChild<RnZoomCanvas>,
+        #[template_child]
+        pub(crate) auto_advance_toggle: TemplateChild<ToggleButton>,
+        #[template_child]
+        pub(crate) return_height_spinbutton: TemplateChild<SpinButton>,
     }
 
     #[glib::object_subclass]
@@ -42,6 +49,18 @@ mod imp {
             self.obj().connect_visible_notify(|zoomwindow| {
                 zoomwindow.imp().zoomcanvas.sync_visible();
             });
+
+            // The panel controls are the source of truth; every followed engine gets them pushed.
+            self.auto_advance_toggle.connect_toggled(clone!(
+                #[weak(rename_to=zoomwindow)]
+                self.obj(),
+                move |_| zoomwindow.push_settings()
+            ));
+            self.return_height_spinbutton.connect_value_changed(clone!(
+                #[weak(rename_to=zoomwindow)]
+                self.obj(),
+                move |_| zoomwindow.push_settings()
+            ));
         }
 
         fn dispose(&self) {
@@ -75,5 +94,22 @@ impl RnZoomWindow {
     /// Follow `canvas`. Called when the active tab changes.
     pub(crate) fn set_canvas(&self, canvas: Option<&RnCanvas>) {
         self.imp().zoomcanvas.set_canvas(canvas);
+        self.push_settings();
+    }
+
+    /// Push auto-advance and return height into the followed engine.
+    fn push_settings(&self) {
+        let imp = self.imp();
+        let Some(canvas) = imp.zoomcanvas.canvas() else {
+            return;
+        };
+
+        let mut engine = canvas.engine_mut();
+        let _ = engine.zoom_window_set_auto_advance(imp.auto_advance_toggle.is_active());
+        engine.zoom_window_set_return_height(imp.return_height_spinbutton.value());
+        drop(engine);
+
+        canvas.queue_draw();
+        imp.zoomcanvas.queue_draw();
     }
 }

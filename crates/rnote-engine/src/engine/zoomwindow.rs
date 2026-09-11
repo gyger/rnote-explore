@@ -1,7 +1,7 @@
 // Imports
 use crate::WidgetFlags;
 use crate::engine::Engine;
-use crate::pens::PenMode;
+use crate::pens::{PenMode, PenStyle};
 use crate::zoomwindow::{BoxScale, BoxShift};
 use p2d::math::Vector2;
 use rnote_compose::eventresult::EventPropagation;
@@ -35,14 +35,34 @@ impl Engine {
         self.zoom_window.new_line(&self.document)
     }
 
+    pub fn zoom_window_set_auto_advance(&mut self, auto_advance: bool) -> WidgetFlags {
+        self.zoom_window.set_auto_advance(auto_advance)
+    }
+
+    pub fn zoom_window_set_return_height(&mut self, height: f64) {
+        self.zoom_window.set_return_height(height);
+    }
+
     /// Handle a pen event coming from the panel. The element must already be in document coordinates.
+    ///
+    /// A finished brush stroke may move the box forward (auto-advance).
     pub fn handle_zoom_window_pen_event(
         &mut self,
         event: PenEvent,
         pen_mode: Option<PenMode>,
         now: Instant,
     ) -> (EventPropagation, WidgetFlags) {
-        self.handle_pen_event(event, pen_mode, now)
+        let stroke_end = match (&event, self.current_pen_style_w_override()) {
+            (PenEvent::Up { element, .. }, PenStyle::Brush) => Some(element.pos),
+            _ => None,
+        };
+
+        let (propagation, mut widget_flags) = self.handle_pen_event(event, pen_mode, now);
+        if let Some(pos) = stroke_end {
+            widget_flags |= self.zoom_window.advance_after_stroke(pos, &self.document);
+        }
+
+        (propagation, widget_flags)
     }
 
     /// Draw the panel content: the document inside the box, magnified.

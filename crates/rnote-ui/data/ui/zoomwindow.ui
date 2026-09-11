@@ -71,6 +71,41 @@
           </object>
         </child>
         <child>
+          <object class="GtkToggleButton" id="auto_advance_toggle">
+            <property name="label" translatable="yes">Auto</property>
+            <property name="active">true</property>
+            <property name="tooltip-text" translatable="yes">Auto-advance: finishing a stroke in the tinted zone moves the box forward</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">horizontal</property>
+            <property name="spacing">3</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="label" translatable="yes">Line</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkSpinButton" id="return_height_spinbutton">
+                <property name="tooltip-text" translatable="yes">Return height: how far a new line moves down</property>
+                <property name="numeric">true</property>
+                <property name="digits">0</property>
+                <property name="climb-rate">1</property>
+                <property name="adjustment">
+                  <object class="GtkAdjustment">
+                    <property name="lower">4</property>
+                    <property name="upper">400</property>
+                    <property name="value">32</property>
+                    <property name="step-increment">1</property>
+                    <property name="page-increment">8</property>
+                  </object>
+                </property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
           <object class="GtkButton" id="close_button">
             <property name="icon-name">window-close-symbolic</property>
             <property name="tooltip-text" translatable="yes">Close Zoom Window</property>

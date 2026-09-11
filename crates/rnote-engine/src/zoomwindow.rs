@@ -40,6 +40,8 @@ pub struct ZoomWindow {
     box_width: f64,
     /// Vertical distance of a new line, in document units.
     return_height: f64,
+    /// Whether writing into the advance zone moves the box forward.
+    auto_advance: bool,
     // Background tile at the panel zoom, regenerated when the zoom or the background changes.
     tile_image: Option<Image>,
     #[cfg(feature = "ui")]
@@ -55,6 +57,7 @@ impl Default for ZoomWindow {
                 .with_size(Self::PANEL_SIZE_DEFAULT),
             box_width: Self::BOX_WIDTH_DEFAULT,
             return_height: Self::RETURN_HEIGHT_DEFAULT,
+            auto_advance: true,
             tile_image: None,
             #[cfg(feature = "ui")]
             tile_texture: None,
@@ -73,8 +76,11 @@ impl ZoomWindow {
     /// Fraction of the box width moved by one shift.
     const BOX_SHIFT_FRACTION: f64 = 0.5;
     const RETURN_HEIGHT_DEFAULT: f64 = 32.0;
+    /// Right part of the box that triggers the advance, as fraction of the box width.
+    const ADVANCE_ZONE_FRACTION: f64 = 0.25;
     const BOX_BORDER_WIDTH: f64 = 1.5;
     const BOX_COLOR: piet::Color = rnote_compose::color::GNOME_BLUES[3];
+    const ADVANCE_ZONE_ALPHA: f64 = 0.15;
 
     pub fn visible(&self) -> bool {
         self.visible
@@ -101,6 +107,40 @@ impl ZoomWindow {
 
     pub fn set_return_height(&mut self, height: f64) {
         self.return_height = height.max(1.0);
+    }
+
+    pub fn auto_advance(&self) -> bool {
+        self.auto_advance
+    }
+
+    pub fn set_auto_advance(&mut self, auto_advance: bool) -> WidgetFlags {
+        self.auto_advance = auto_advance;
+        redraw()
+    }
+
+    /// The part of the box where finishing a stroke moves the box forward, in document coordinates.
+    pub fn advance_zone(&self) -> Aabb {
+        let bounds = self.box_bounds();
+        let zone_start = bounds.maxs[0] - bounds.extents()[0] * Self::ADVANCE_ZONE_FRACTION;
+        Aabb::new(Vector2::new(zone_start, bounds.mins[1]), bounds.maxs)
+    }
+
+    /// React to a finished stroke at `pos`.
+    ///
+    /// Ending a stroke in the advance zone shifts the box so the zone becomes its left part.
+    /// Past the right document edge the box wraps to a new line instead.
+    pub(crate) fn advance_after_stroke(&mut self, pos: Vector2, doc: &Document) -> WidgetFlags {
+        if !self.auto_advance || !self.advance_zone().contains_local_point(pos) {
+            return WidgetFlags::default();
+        }
+
+        let bounds = self.box_bounds();
+        let shift = bounds.extents()[0] * (1.0 - Self::ADVANCE_ZONE_FRACTION);
+        if bounds.maxs[0] + shift > doc.bounds().maxs[0] {
+            return self.new_line(doc);
+        }
+
+        self.move_box_to(bounds.mins + Vector2::new(shift, 0.0), doc)
     }
 
     /// Set the panel size in surface pixels. The box keeps its width and origin.
@@ -263,6 +303,28 @@ impl ZoomWindow {
         );
 
         snapshot.append_border(&rounded_rect, &[border_width; 4], &[color; 4]);
+        self.draw_advance_zone_to_gtk_snapshot(snapshot);
+    }
+
+    /// Tint the advance zone. The snapshot must be transformed to document coordinates.
+    #[cfg(feature = "ui")]
+    pub(crate) fn draw_advance_zone_to_gtk_snapshot(&self, snapshot: &gtk4::Snapshot) {
+        use crate::ext::{GdkRGBAExt, GrapheneRectExt};
+        use gtk4::{gdk, graphene, gsk, prelude::*};
+
+        if !self.auto_advance {
+            return;
+        }
+
+        let mut color: rnote_compose::Color = Self::BOX_COLOR.into();
+        color.a = Self::ADVANCE_ZONE_ALPHA;
+        snapshot.append_node(
+            gsk::ColorNode::new(
+                &gdk::RGBA::from_compose_color(color),
+                &graphene::Rect::from_p2d_aabb(self.advance_zone()),
+            )
+            .upcast(),
+        );
     }
 }
 
@@ -299,6 +361,35 @@ mod tests {
         zoom_window.scale_box(BoxScale::Shrink, &doc, &Background::default());
 
         assert!(zoom_window.camera().total_zoom() > zoom_before);
+    }
+
+    #[test]
+    fn stroke_in_zone_advances() {
+        let doc = Document::default();
+        let mut zoom_window = ZoomWindow::default();
+        let before = zoom_window.box_bounds();
+
+        zoom_window.advance_after_stroke(before.center() - Vector2::new(1.0, 0.0), &doc);
+        assert_relative_eq!(zoom_window.box_bounds().mins, before.mins);
+
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let after = zoom_window.box_bounds();
+        assert!(after.mins[0] > before.mins[0]);
+        assert_relative_eq!(after.mins[1], before.mins[1]);
+    }
+
+    #[test]
+    fn stroke_at_page_edge_wraps() {
+        let doc = Document::default();
+        let mut zoom_window = ZoomWindow::default();
+        let width = zoom_window.box_bounds().extents()[0];
+        zoom_window.move_box_to(Vector2::new(doc.bounds().maxs[0] - width, 100.0), &doc);
+
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let bounds = zoom_window.box_bounds();
+
+        assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
+        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
     }
 
     #[test]
