@@ -115,7 +115,15 @@ impl ZoomWindow {
     const BOX_SHIFT_FRACTION: f64 = 0.5;
     const RETURN_HEIGHT_DEFAULT: f64 = 32.0;
     /// Right part of the box that triggers the advance, as fraction of the box width.
-    const ADVANCE_ZONE_FRACTION: f64 = 0.25;
+    ///
+    /// Narrow, so writing has to reach the edge of the box before it moves.
+    const ADVANCE_ZONE_FRACTION: f64 = 0.10;
+    /// How much of the box an advance keeps in view, as fraction of the box width.
+    ///
+    /// What was just written stays on screen, so the next letters can be joined onto it.
+    const ADVANCE_OVERLAP_FRACTION: f64 = 0.25;
+    /// Room left on the line below which it counts as full, in document units.
+    const ADVANCE_REMAINDER_MIN: f64 = 1.0;
     #[cfg(feature = "ui")]
     const BOX_BORDER_WIDTH: f64 = 1.5;
     /// Side of the resize handle square, in surface pixels.
@@ -185,8 +193,8 @@ impl ZoomWindow {
 
     /// React to a finished stroke at `pos`.
     ///
-    /// Ending a stroke in the advance zone shifts the box so the zone becomes its left part.
-    /// Past the right document edge the box wraps to a new line instead.
+    /// Ending a stroke in the advance zone shifts the box forward, keeping what was written
+    /// in view. At the right page edge the box wraps to a new line instead.
     pub(crate) fn advance_after_stroke(&mut self, pos: Vector2, doc: &Document) -> WidgetFlags {
         // Repeated pen-up events (proximity, button quirks) must not advance again.
         let pending = std::mem::replace(&mut self.stroke_pending, false);
@@ -195,12 +203,26 @@ impl ZoomWindow {
         }
 
         let bounds = self.box_bounds();
-        let shift = bounds.extents()[0] * (1.0 - Self::ADVANCE_ZONE_FRACTION);
-        if bounds.maxs[0] + shift > doc.bounds().maxs[0] {
+
+        // The line ends at the page, not at the document: every layout but fixed size is
+        // wider than a page, and an infinite one grows as the view moves.
+        let remaining = self.page_right(doc) - bounds.maxs[0];
+        if remaining <= Self::ADVANCE_REMAINDER_MIN {
             return self.new_line(doc);
         }
 
-        self.move_box_to(bounds.mins + Vector2::new(shift, 0.0), doc)
+        // A short last step, so the box still covers the page edge and can be written up to
+        // it even when the box is wider than what is left of the line.
+        let step = self.advance_step().min(remaining);
+        self.move_box_to(bounds.mins + Vector2::new(step, 0.0), doc)
+    }
+
+    /// How far one auto-advance moves the box: a box width less the part it keeps in view.
+    ///
+    /// Independent of the zone that triggers it, so the trigger can be made eager or patient
+    /// without changing how much of the writing stays on screen.
+    fn advance_step(&self) -> f64 {
+        self.box_bounds().extents()[0] * (1.0 - Self::ADVANCE_OVERLAP_FRACTION)
     }
 
     /// Handle a main canvas pen event that may move or resize the box.
@@ -349,6 +371,11 @@ impl ZoomWindow {
     fn page_left(&self, doc: &Document) -> f64 {
         let page_width = doc.config.format.size()[0];
         (self.box_bounds().mins[0] / page_width).floor() * page_width
+    }
+
+    /// Right edge of the page the box is on.
+    fn page_right(&self, doc: &Document) -> f64 {
+        self.page_left(doc) + doc.config.format.size()[0]
     }
 
     pub(crate) fn scale_box(
@@ -589,6 +616,65 @@ mod tests {
 
         assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
         assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+    }
+
+    #[test]
+    fn advance_keeps_the_overlap_whatever_triggers_it() {
+        // The trigger zone and the kept overlap are separate settings: the step follows the
+        // overlap alone, so the zone can be tuned without changing what stays in view.
+        let doc = Document::default();
+        let mut zoom_window = ZoomWindow::default();
+        let before = zoom_window.box_bounds();
+        let width = before.extents()[0];
+
+        zoom_window.begin_stroke();
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let after = zoom_window.box_bounds();
+
+        assert_relative_eq!(
+            after.mins[0] - before.mins[0],
+            width * (1.0 - ZoomWindow::ADVANCE_OVERLAP_FRACTION)
+        );
+        // What was written in the zone is still on screen after the jump.
+        assert!(after.mins[0] < before.maxs[0] - width * ZoomWindow::ADVANCE_ZONE_FRACTION);
+    }
+
+    #[test]
+    fn advance_wraps_at_the_page_not_the_document() {
+        // A document is wider than one page in every layout but fixed size. The line still
+        // ends at the page.
+        let mut doc = Document::default();
+        let page_width = doc.config.format.size()[0];
+        doc.width = page_width * 4.0;
+        let mut zoom_window = ZoomWindow::default();
+        let width = zoom_window.box_bounds().extents()[0];
+        zoom_window.move_box_to(Vector2::new(page_width - width, 100.0), &doc);
+
+        zoom_window.begin_stroke();
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let bounds = zoom_window.box_bounds();
+
+        assert_relative_eq!(bounds.mins[0], 0.0);
+        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+    }
+
+    #[test]
+    fn advance_writes_the_page_to_its_edge() {
+        // The last advance of a line is a short one, so no wide strip of the page is skipped.
+        let doc = Document::default();
+        let page_width = doc.config.format.size()[0];
+        let mut zoom_window = ZoomWindow::default();
+        let width = zoom_window.box_bounds().extents()[0];
+        // A sliver of a page is still page: the box covers it rather than skipping it.
+        let remaining = 10.0;
+        zoom_window.move_box_to(Vector2::new(page_width - width - remaining, 100.0), &doc);
+
+        zoom_window.begin_stroke();
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let bounds = zoom_window.box_bounds();
+
+        assert_relative_eq!(bounds.maxs[0], page_width);
+        assert_relative_eq!(bounds.mins[1], 100.0);
     }
 
     #[test]
