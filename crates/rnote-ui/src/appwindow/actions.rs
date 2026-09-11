@@ -18,6 +18,7 @@ use rnote_engine::ext::GraphenePointExt;
 use rnote_engine::pens::PenStyle;
 use rnote_engine::strokes::resize::{ImageSizeOption, Resize};
 use rnote_engine::strokes::textstroke::TextAttribute;
+use rnote_engine::zoomwindow::{BoxScale, BoxShift};
 use rnote_engine::{Camera, Engine};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -177,6 +178,18 @@ impl RnAppWindow {
         self.add_action(&action_touch_drawing);
         let action_focus_mode = gio::PropertyAction::new("focus-mode", self, "focus-mode");
         self.add_action(&action_focus_mode);
+        let action_zoom_window = gio::PropertyAction::new("zoom-window", self, "zoom-window");
+        self.add_action(&action_zoom_window);
+        let action_zoom_window_box_left = gio::SimpleAction::new("zoom-window-box-left", None);
+        self.add_action(&action_zoom_window_box_left);
+        let action_zoom_window_box_right = gio::SimpleAction::new("zoom-window-box-right", None);
+        self.add_action(&action_zoom_window_box_right);
+        let action_zoom_window_new_line = gio::SimpleAction::new("zoom-window-new-line", None);
+        self.add_action(&action_zoom_window_new_line);
+        let action_zoom_window_box_shrink = gio::SimpleAction::new("zoom-window-box-shrink", None);
+        self.add_action(&action_zoom_window_box_shrink);
+        let action_zoom_window_box_grow = gio::SimpleAction::new("zoom-window-box-grow", None);
+        self.add_action(&action_zoom_window_box_grow);
         let action_pen_sounds = gio::PropertyAction::new("pen-sounds", self, "pen-sounds");
         self.add_action(&action_pen_sounds);
         let action_snap_positions =
@@ -480,6 +493,53 @@ impl RnAppWindow {
                 let (_, widget_flags) = canvas
                     .engine_mut()
                     .handle_pressed_shortcut_key(ShortcutKey::DrawingPadButton3, Instant::now());
+                appwindow.handle_widget_flags(widget_flags, &canvas);
+            }
+        ));
+
+        // Zoom window box navigation
+        for (action, shift) in [
+            (&action_zoom_window_box_left, BoxShift::Left),
+            (&action_zoom_window_box_right, BoxShift::Right),
+        ] {
+            action.connect_activate(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _| {
+                    let Some(canvas) = appwindow.active_tab_canvas() else {
+                        return;
+                    };
+                    let widget_flags = canvas.engine_mut().zoom_window_shift_box(shift);
+                    appwindow.handle_widget_flags(widget_flags, &canvas);
+                }
+            ));
+        }
+
+        for (action, scale) in [
+            (&action_zoom_window_box_shrink, BoxScale::Shrink),
+            (&action_zoom_window_box_grow, BoxScale::Grow),
+        ] {
+            action.connect_activate(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _| {
+                    let Some(canvas) = appwindow.active_tab_canvas() else {
+                        return;
+                    };
+                    let widget_flags = canvas.engine_mut().zoom_window_scale_box(scale);
+                    appwindow.handle_widget_flags(widget_flags, &canvas);
+                }
+            ));
+        }
+
+        action_zoom_window_new_line.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                let Some(canvas) = appwindow.active_tab_canvas() else {
+                    return;
+                };
+                let widget_flags = canvas.engine_mut().zoom_window_new_line();
                 appwindow.handle_widget_flags(widget_flags, &canvas);
             }
         ));
@@ -1184,6 +1244,7 @@ impl RnAppWindow {
         app.set_accels_for_action("win.fullscreen", &["F11"]);
         app.set_accels_for_action("win.keyboard-shortcuts", &["<Ctrl>question"]);
         app.set_accels_for_action("win.toggle-overview", &["<Ctrl><Shift>o"]);
+        app.set_accels_for_action("win.zoom-window", &["F7"]);
         app.set_accels_for_action("win.open-canvasmenu", &["F9"]);
         app.set_accels_for_action("win.open-appmenu", &["F10"]);
         app.set_accels_for_action("win.open-doc", &["<Ctrl>o"]);

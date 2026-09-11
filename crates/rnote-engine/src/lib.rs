@@ -27,6 +27,7 @@ pub mod svg;
 pub mod tasks;
 pub mod utils;
 pub mod widgetflags;
+pub mod zoomwindow;
 
 // Re-exports
 #[cfg(feature = "ui")]

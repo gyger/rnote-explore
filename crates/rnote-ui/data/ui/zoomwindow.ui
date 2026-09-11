@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="RnZoomWindow" parent="GtkWidget">
+    <property name="layout-manager">
+      <object class="GtkBoxLayout">
+        <property name="orientation">vertical</property>
+      </object>
+    </property>
+    <property name="hexpand">true</property>
+    <property name="height-request">220</property>
+    <child>
+      <object class="GtkBox" id="toolbar">
+        <property name="orientation">horizontal</property>
+        <property name="spacing">6</property>
+        <property name="margin-top">3</property>
+        <property name="margin-bottom">3</property>
+        <property name="margin-start">6</property>
+        <property name="margin-end">6</property>
+        <style>
+          <class name="toolbar" />
+        </style>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">horizontal</property>
+            <style>
+              <class name="linked" />
+            </style>
+            <child>
+              <object class="GtkButton" id="box_left_button">
+                <property name="icon-name">dir-left-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Move Box Left</property>
+                <property name="action-name">win.zoom-window-box-left</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="box_right_button">
+                <property name="icon-name">dir-right-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Move Box Right</property>
+                <property name="action-name">win.zoom-window-box-right</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="new_line_button">
+                <property name="icon-name">dir-down-symbolic</property>
+                <property name="tooltip-text" translatable="yes">New Line</property>
+                <property name="action-name">win.zoom-window-new-line</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">horizontal</property>
+            <style>
+              <class name="linked" />
+            </style>
+            <child>
+              <object class="GtkButton" id="box_grow_button">
+                <property name="icon-name">zoom-out-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Larger Box</property>
+                <property name="action-name">win.zoom-window-box-grow</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="box_shrink_button">
+                <property name="icon-name">zoom-in-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Smaller Box</property>
+                <property name="action-name">win.zoom-window-box-shrink</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="close_button">
+            <property name="icon-name">window-close-symbolic</property>
+            <property name="tooltip-text" translatable="yes">Close Zoom Window</property>
+            <property name="action-name">win.zoom-window</property>
+            <property name="halign">end</property>
+            <property name="hexpand">true</property>
+            <style>
+              <class name="flat" />
+            </style>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="RnZoomCanvas" id="zoomcanvas">
+        <property name="hexpand">true</property>
+        <property name="vexpand">true</property>
+      </object>
+    </child>
+  </template>
+</interface>

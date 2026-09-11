@@ -376,6 +376,7 @@ rnote_ui_gresources_ui_files = files(
     'ui/style.css',
     'ui/unitentry.ui',
     'ui/workspacebrowser.ui',
+    'ui/zoomwindow.ui',
     'ui/workspacesbar/workspacerow.ui',
     'ui/workspacesbar/workspacesbar.ui',
 )

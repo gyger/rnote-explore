@@ -29,6 +29,7 @@ pub(crate) struct RnAppWindow {
     pub(crate) respect_borders: Cell<bool>,
     pub(crate) touch_drawing: Cell<bool>,
     pub(crate) focus_mode: Cell<bool>,
+    pub(crate) zoom_window: Cell<bool>,
     pub(crate) devel_mode: Cell<bool>,
     pub(crate) visual_debug: Cell<bool>,
 
@@ -68,6 +69,7 @@ impl Default for RnAppWindow {
             respect_borders: Cell::new(false),
             touch_drawing: Cell::new(false),
             focus_mode: Cell::new(false),
+            zoom_window: Cell::new(false),
             devel_mode: Cell::new(false),
             visual_debug: Cell::new(false),
 
@@ -172,6 +174,9 @@ impl ObjectImpl for RnAppWindow {
                 glib::ParamSpecBoolean::builder("focus-mode")
                     .default_value(false)
                     .build(),
+                glib::ParamSpecBoolean::builder("zoom-window")
+                    .default_value(false)
+                    .build(),
                 glib::ParamSpecBoolean::builder("devel-mode")
                     .default_value(false)
                     .build(),
@@ -198,6 +203,7 @@ impl ObjectImpl for RnAppWindow {
             "respect-borders" => self.respect_borders.get().to_value(),
             "touch-drawing" => self.touch_drawing.get().to_value(),
             "focus-mode" => self.focus_mode.get().to_value(),
+            "zoom-window" => self.zoom_window.get().to_value(),
             "devel-mode" => self.devel_mode.get().to_value(),
             "visual-debug" => self.visual_debug.get().to_value(),
             "save-in-progress" => self.save_in_progress.get().to_value(),
@@ -297,6 +303,12 @@ impl ObjectImpl for RnAppWindow {
                 self.overlays.penpicker().set_visible(!focus_mode);
                 self.overlays.colorpicker().set_visible(!focus_mode);
                 self.overlays.sidebar_box().set_visible(!focus_mode);
+            }
+            "zoom-window" => {
+                let zoom_window: bool = value.get().expect("The value needs to be of type `bool`");
+                self.zoom_window.replace(zoom_window);
+
+                self.overlays.zoomwindow().set_visible(zoom_window);
             }
             "devel-mode" => {
                 let devel_mode = value

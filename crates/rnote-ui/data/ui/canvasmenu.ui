@@ -45,6 +45,11 @@
             <attribute name="toggle" />
             <attribute name="action">win.block-pinch-zoom</attribute>
           </item>
+          <item>
+            <attribute name="label" translatable="yes">Zoom _Window</attribute>
+            <attribute name="toggle" />
+            <attribute name="action">win.zoom-window</attribute>
+          </item>
         </section>
         <section>
           <item>
