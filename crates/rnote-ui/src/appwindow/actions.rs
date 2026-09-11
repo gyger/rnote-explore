@@ -180,6 +180,8 @@ impl RnAppWindow {
         self.add_action(&action_focus_mode);
         let action_zoom_window = gio::PropertyAction::new("zoom-window", self, "zoom-window");
         self.add_action(&action_zoom_window);
+        let action_presentation = gio::PropertyAction::new("presentation", self, "presentation");
+        self.add_action(&action_presentation);
         let action_zoom_window_box_left = gio::SimpleAction::new("zoom-window-box-left", None);
         self.add_action(&action_zoom_window_box_left);
         let action_zoom_window_box_right = gio::SimpleAction::new("zoom-window-box-right", None);
@@ -1245,6 +1247,7 @@ impl RnAppWindow {
         app.set_accels_for_action("win.keyboard-shortcuts", &["<Ctrl>question"]);
         app.set_accels_for_action("win.toggle-overview", &["<Ctrl><Shift>o"]);
         app.set_accels_for_action("win.zoom-window", &["F7"]);
+        app.set_accels_for_action("win.presentation", &["F8"]);
         app.set_accels_for_action("win.open-canvasmenu", &["F9"]);
         app.set_accels_for_action("win.open-appmenu", &["F10"]);
         app.set_accels_for_action("win.open-doc", &["<Ctrl>o"]);
