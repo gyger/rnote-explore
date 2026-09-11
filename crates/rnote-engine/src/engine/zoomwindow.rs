@@ -171,7 +171,16 @@ impl Engine {
 }
 
 /// Shift of a view interval so that a target interval fits, 0.0 if it already does.
+///
+/// A target larger than the view can never fit; chasing its edges would flip the view
+/// back and forth. Such a target is followed only once it has left the view, top-aligned.
 fn axis_shift(view_min: f64, view_max: f64, target_min: f64, target_max: f64) -> f64 {
+    let fits = target_max - target_min <= view_max - view_min;
+    if !fits {
+        let gone = target_max < view_min || target_min > view_max;
+        return if gone { target_min - view_min } else { 0.0 };
+    }
+
     if target_min < view_min {
         return target_min - view_min;
     }
@@ -185,6 +194,18 @@ fn axis_shift(view_min: f64, view_max: f64, target_min: f64, target_max: f64) ->
 mod tests {
     use super::*;
     use p2d::bounding_volume::BoundingVolume;
+
+    #[test]
+    fn oversized_target_does_not_oscillate() {
+        // Target larger than the view and overlapping it: stay put.
+        assert_eq!(axis_shift(0.0, 100.0, -10.0, 150.0), 0.0);
+        // Larger and gone below the view: align the top edge.
+        assert_eq!(axis_shift(0.0, 100.0, 200.0, 400.0), 200.0);
+        // Larger and gone above the view: align the top edge.
+        assert_eq!(axis_shift(0.0, 100.0, -400.0, -200.0), -400.0);
+        // Fitting target keeps the minimal shift.
+        assert_eq!(axis_shift(0.0, 100.0, 90.0, 120.0), 20.0);
+    }
 
     #[test]
     fn reveal_scrolls_to_box() {
