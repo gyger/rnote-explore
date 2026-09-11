@@ -267,6 +267,7 @@ impl RnAppWindow {
                 window.set_canvas(None);
                 window.set_visible(false);
             }
+            self.refresh_presentation_flip_action();
             return;
         }
 
@@ -286,12 +287,47 @@ impl RnAppWindow {
                 }
             ));
 
+            // A projector plugged in or unplugged decides whether flipping has a target.
+            WidgetExt::display(self).monitors().connect_items_changed(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _, _, _| appwindow.refresh_presentation_flip_action()
+            ));
+
             self.imp().presentation_window.replace(Some(window.clone()));
             window
         });
 
         window.set_canvas(self.active_tab_canvas().as_ref());
         window.present_on_audience_monitor(self);
+        self.refresh_presentation_flip_action();
+    }
+
+    /// Flipping needs an audience window to move, and a second screen to move it to.
+    fn refresh_presentation_flip_action(&self) {
+        let Some(action) = self
+            .lookup_action("presentation-flip-screen")
+            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+        else {
+            return;
+        };
+
+        let shown = self
+            .presentation_window()
+            .is_some_and(|window| window.is_visible());
+        let monitor_count = WidgetExt::display(self).monitors().n_items();
+        action.set_enabled(shown && monitor_count > 1);
+    }
+
+    /// Move the audience window to the next display.
+    pub(crate) fn flip_presentation_screen(&self) {
+        let Some(window) = self
+            .presentation_window()
+            .filter(|window| window.is_visible())
+        else {
+            return;
+        };
+        window.flip_screen(self);
     }
 
     /// Called to close the window
