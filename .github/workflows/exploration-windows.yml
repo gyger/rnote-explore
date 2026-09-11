@@ -61,10 +61,12 @@ jobs:
           base="$(git merge-base origin/main HEAD)"
           # Every feature enters `exploration` as a merge, so its subject
           # ("Merge branch 'zoom-window' into exploration") is the source of
-          # truth for the name. A re-merged branch is only listed once.
+          # truth for the name. Features appear in merge order; a re-merged
+          # branch keeps its first position; an 'origin/' prefix is stripped;
+          # merging main in is an update, not a feature, so it is dropped.
           features="$(git log --merges --reverse --format=%s "${base}..HEAD" \
-            | sed -n "s/^Merge branch '\([^']*\)'.*/\1/p" \
-            | awk '!seen[$0]++' \
+            | sed -n "s/^Merge \(remote-tracking \)\?branch '\(origin\/\)\?\([^']*\)'.*/\3/p" \
+            | awk '$0 != "main" && !seen[$0]++' \
             | sed -e 's/^/+/' | tr -d '\n')"
           name="rnote-win-installer-${GITHUB_REF_NAME}${features}-x86_64"
           echo "name=$(echo "${name}" | sed -e 's/[^A-Za-z0-9._+-]/_/g')" >> $GITHUB_OUTPUT
