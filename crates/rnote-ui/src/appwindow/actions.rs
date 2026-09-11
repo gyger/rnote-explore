@@ -186,6 +186,18 @@ impl RnAppWindow {
             gio::SimpleAction::new("presentation-flip-screen", None);
         action_presentation_flip_screen.set_enabled(false);
         self.add_action(&action_presentation_flip_screen);
+        let action_presentation_lock_page =
+            gio::SimpleAction::new_stateful("presentation-lock-page", None, &false.to_variant());
+        action_presentation_lock_page.set_enabled(false);
+        self.add_action(&action_presentation_lock_page);
+        let action_presentation_freeze =
+            gio::SimpleAction::new_stateful("presentation-freeze", None, &false.to_variant());
+        action_presentation_freeze.set_enabled(false);
+        self.add_action(&action_presentation_freeze);
+        let action_presentation_blank =
+            gio::SimpleAction::new_stateful("presentation-blank", None, &false.to_variant());
+        action_presentation_blank.set_enabled(false);
+        self.add_action(&action_presentation_blank);
         let action_zoom_window_box_left = gio::SimpleAction::new("zoom-window-box-left", None);
         self.add_action(&action_zoom_window_box_left);
         let action_zoom_window_box_right = gio::SimpleAction::new("zoom-window-box-right", None);
@@ -543,6 +555,51 @@ impl RnAppWindow {
             self,
             move |_, _| {
                 appwindow.flip_presentation_screen();
+            }
+        ));
+
+        action_presentation_lock_page.connect_change_state(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |action, state| {
+                let Some(locked) = state.and_then(|state| state.get::<bool>()) else {
+                    return;
+                };
+                action.set_state(&locked.to_variant());
+
+                if let Some(window) = appwindow.presentation_window() {
+                    window.set_page_locked(locked);
+                }
+            }
+        ));
+
+        action_presentation_freeze.connect_change_state(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |action, state| {
+                let Some(frozen) = state.and_then(|state| state.get::<bool>()) else {
+                    return;
+                };
+                action.set_state(&frozen.to_variant());
+
+                if let Some(window) = appwindow.presentation_window() {
+                    window.set_frozen(frozen);
+                }
+            }
+        ));
+
+        action_presentation_blank.connect_change_state(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |action, state| {
+                let Some(blanked) = state.and_then(|state| state.get::<bool>()) else {
+                    return;
+                };
+                action.set_state(&blanked.to_variant());
+
+                if let Some(window) = appwindow.presentation_window() {
+                    window.set_blanked(blanked);
+                }
             }
         ));
 
@@ -1261,6 +1318,9 @@ impl RnAppWindow {
         app.set_accels_for_action("win.zoom-window", &["F7"]);
         app.set_accels_for_action("win.presentation", &["F8"]);
         app.set_accels_for_action("win.presentation-flip-screen", &["<Shift>F8"]);
+        app.set_accels_for_action("win.presentation-lock-page", &["<Ctrl>F8"]);
+        app.set_accels_for_action("win.presentation-freeze", &["<Alt>F8"]);
+        app.set_accels_for_action("win.presentation-blank", &["<Ctrl><Shift>F8"]);
         app.set_accels_for_action("win.open-canvasmenu", &["F9"]);
         app.set_accels_for_action("win.open-appmenu", &["F10"]);
         app.set_accels_for_action("win.open-doc", &["<Ctrl>o"]);

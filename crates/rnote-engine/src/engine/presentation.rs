@@ -5,7 +5,6 @@ use crate::engine::Engine;
 use crate::engine::EngineView;
 #[cfg(feature = "ui")]
 use crate::Camera;
-#[cfg(any(feature = "ui", test))]
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 
@@ -20,6 +19,21 @@ impl Engine {
         self.presentation.set_size(size, scale_factor)
     }
 
+    pub fn presentation_set_blanked(&mut self, blanked: bool) -> WidgetFlags {
+        self.presentation.set_blanked(blanked)
+    }
+
+    /// Hold the audience on the page they are seeing, or let them follow the lecturer again.
+    pub fn presentation_set_page_locked(&mut self, locked: bool) -> WidgetFlags {
+        let page = locked.then(|| self.audience_page());
+        self.presentation.lock_on(page)
+    }
+
+    /// The page the audience is seeing.
+    pub fn audience_page(&self) -> Aabb {
+        self.presentation.page_or(self.lecturer_page())
+    }
+
     /// The page under the center of the lecturer's viewport.
     ///
     /// Only the page follows the lecturer; zoom and scrolling inside a page do not reach the
@@ -29,7 +43,6 @@ impl Engine {
     /// document origin drifts with the infinite layout padding while the page borders do not
     /// (see `draw_format_borders_to_gtk_snapshot`). The page is the grid cell the viewport
     /// center falls into, clamped to the cells the document actually spans.
-    #[cfg(any(feature = "ui", test))]
     fn lecturer_page(&self) -> Aabb {
         let page_size = self.document.config.format.size();
         if page_size[0] <= 0.0 || page_size[1] <= 0.0 {
@@ -61,7 +74,7 @@ impl Engine {
         use piet::RenderContext;
         use rnote_compose::ext::{AabbExt, DAffine2Ext};
 
-        let page = self.lecturer_page();
+        let page = self.audience_page();
         let camera = self.presentation.camera_for(page);
         let doc_bounds = self.document.bounds();
 
@@ -71,6 +84,12 @@ impl Engine {
         // ratio shows bars instead of the neighbouring pages.
         self.presentation
             .draw_letterbox_to_gtk_snapshot(snapshot, surface_bounds);
+
+        // Blanked: the letterbox is the whole picture.
+        if self.presentation.blanked() {
+            snapshot.pop();
+            return Ok(());
+        }
 
         snapshot.save();
         snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
@@ -155,6 +174,28 @@ mod tests {
             .set_viewport_center(page_size * 0.5);
 
         assert_eq!(engine.lecturer_page().mins, Vector2::ZERO);
+    }
+
+    #[test]
+    fn locking_holds_the_page_the_audience_sees() {
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        let page_size = engine.document.config.format.size();
+        engine.document.height = page_size[1] * 4.0;
+
+        let locked = engine.audience_page();
+        let _ = engine.presentation_set_page_locked(true);
+
+        // The lecturer looks ahead at the next page.
+        let _ = engine
+            .camera
+            .set_viewport_center(Vector2::new(page_size[0] * 0.5, page_size[1] * 1.5));
+        assert_ne!(engine.lecturer_page(), locked);
+        assert_eq!(engine.audience_page(), locked);
+
+        // Unlocking catches the audience up.
+        let _ = engine.presentation_set_page_locked(false);
+        assert_eq!(engine.audience_page(), engine.lecturer_page());
     }
 
     #[test]

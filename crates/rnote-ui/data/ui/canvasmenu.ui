@@ -50,15 +50,37 @@
             <attribute name="toggle" />
             <attribute name="action">win.zoom-window</attribute>
           </item>
-          <item>
-            <attribute name="label" translatable="yes">_Presentation Window</attribute>
-            <attribute name="toggle" />
-            <attribute name="action">win.presentation</attribute>
-          </item>
-          <item>
-            <attribute name="label" translatable="yes">Flip Presentation _Screen</attribute>
-            <attribute name="action">win.presentation-flip-screen</attribute>
-          </item>
+          <submenu>
+            <attribute name="label" translatable="yes">_Presentation</attribute>
+            <section>
+              <item>
+                <attribute name="label" translatable="yes">Presentation _Window</attribute>
+                <attribute name="toggle" />
+                <attribute name="action">win.presentation</attribute>
+              </item>
+            </section>
+            <section>
+              <item>
+                <attribute name="label" translatable="yes">_Lock Page</attribute>
+                <attribute name="toggle" />
+                <attribute name="action">win.presentation-lock-page</attribute>
+              </item>
+              <item>
+                <attribute name="label" translatable="yes">F_reeze View</attribute>
+                <attribute name="toggle" />
+                <attribute name="action">win.presentation-freeze</attribute>
+              </item>
+              <item>
+                <attribute name="label" translatable="yes">_Blank Screen</attribute>
+                <attribute name="toggle" />
+                <attribute name="action">win.presentation-blank</attribute>
+              </item>
+              <item>
+                <attribute name="label" translatable="yes">Flip _Screen</attribute>
+                <attribute name="action">win.presentation-flip-screen</attribute>
+              </item>
+            </section>
+          </submenu>
         </section>
         <section>
           <item>

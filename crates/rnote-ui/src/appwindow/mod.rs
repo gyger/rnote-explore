@@ -264,10 +264,16 @@ impl RnAppWindow {
     pub(crate) fn show_presentation_window(&self, show: bool) {
         if !show {
             if let Some(window) = self.presentation_window() {
+                // Clear what was set on the audience view, while it still has a canvas to
+                // clear it on. Reopening starts live, on the lecturer's page.
+                window.set_page_locked(false);
+                window.set_frozen(false);
+                window.set_blanked(false);
                 window.set_canvas(None);
                 window.set_visible(false);
             }
-            self.refresh_presentation_flip_action();
+            self.reset_presentation_actions();
+            self.refresh_presentation_actions();
             return;
         }
 
@@ -291,7 +297,7 @@ impl RnAppWindow {
             WidgetExt::display(self).monitors().connect_items_changed(clone!(
                 #[weak(rename_to=appwindow)]
                 self,
-                move |_, _, _, _| appwindow.refresh_presentation_flip_action()
+                move |_, _, _, _| appwindow.refresh_presentation_actions()
             ));
 
             self.imp().presentation_window.replace(Some(window.clone()));
@@ -300,23 +306,39 @@ impl RnAppWindow {
 
         window.set_canvas(self.active_tab_canvas().as_ref());
         window.present_on_audience_monitor(self);
-        self.refresh_presentation_flip_action();
+        self.refresh_presentation_actions();
     }
 
-    /// Flipping needs an audience window to move, and a second screen to move it to.
-    fn refresh_presentation_flip_action(&self) {
-        let Some(action) = self
-            .lookup_action("presentation-flip-screen")
-            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
-        else {
-            return;
-        };
-
+    /// The presentation actions need an audience window to act on, and flipping needs a
+    /// second screen to move it to.
+    fn refresh_presentation_actions(&self) {
         let shown = self
             .presentation_window()
             .is_some_and(|window| window.is_visible());
         let monitor_count = WidgetExt::display(self).monitors().n_items();
-        action.set_enabled(shown && monitor_count > 1);
+
+        for name in ["presentation-lock-page", "presentation-freeze", "presentation-blank"] {
+            if let Some(action) = self.presentation_action(name) {
+                action.set_enabled(shown);
+            }
+        }
+        if let Some(action) = self.presentation_action("presentation-flip-screen") {
+            action.set_enabled(shown && monitor_count > 1);
+        }
+    }
+
+    /// Closing the audience window leaves nothing switched on behind it.
+    fn reset_presentation_actions(&self) {
+        for name in ["presentation-lock-page", "presentation-freeze", "presentation-blank"] {
+            if let Some(action) = self.presentation_action(name) {
+                action.set_state(&false.to_variant());
+            }
+        }
+    }
+
+    fn presentation_action(&self, name: &str) -> Option<gio::SimpleAction> {
+        self.lookup_action(name)
+            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
     }
 
     /// Move the audience window to the next display.
@@ -375,6 +397,10 @@ impl RnAppWindow {
         }
         if widget_flags.resize {
             canvas.queue_resize();
+            // The page format may have changed, and a windowed audience view takes its shape.
+            if let Some(window) = self.presentation_window() {
+                window.refresh_page_ratio();
+            }
         }
         if widget_flags.refresh_ui {
             self.refresh_ui();
