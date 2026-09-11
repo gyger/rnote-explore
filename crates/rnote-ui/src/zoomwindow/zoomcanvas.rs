@@ -9,7 +9,7 @@ use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::ext::AabbExt;
 use rnote_compose::penevent::PenState;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use tracing::error;
 
 mod imp {
@@ -20,6 +20,8 @@ mod imp {
     pub(crate) struct RnZoomCanvas {
         pub(crate) canvas: glib::WeakRef<RnCanvas>,
         pub(crate) pointer_controller: EventControllerLegacy,
+        /// Mirrors the followed canvas cursor, so the pointer looks the same in both views.
+        pub(crate) cursor_binding: RefCell<Option<glib::Binding>>,
     }
 
     impl Default for RnZoomCanvas {
@@ -31,6 +33,7 @@ mod imp {
 
             Self {
                 canvas: glib::WeakRef::new(),
+                cursor_binding: RefCell::new(None),
                 pointer_controller,
             }
         }
@@ -147,7 +150,19 @@ impl RnZoomCanvas {
         self.imp().canvas.set(canvas);
         self.sync_visible();
 
+        // The main canvas swaps its cursor between regular, drawing and invisible.
+        // Bind it so the same pointer shows here instead of the default arrow.
+        if let Some(binding) = self.imp().cursor_binding.take() {
+            binding.unbind();
+        }
+
         if let Some(canvas) = canvas {
+            let binding = canvas
+                .bind_property("cursor", self, "cursor")
+                .sync_create()
+                .build();
+            self.imp().cursor_binding.replace(Some(binding));
+
             let _ = canvas
                 .engine_mut()
                 .zoom_window_set_size(self.bounds().extents());
