@@ -2,17 +2,21 @@
 
 name: Exploration Windows Installer
 
-# Builds a Windows installer for the long-lived `exploration` integration
-# branch. The installer is named after what went into it, e.g.
-#   rnote-win-installer-mainHEAD-bbc5354+zoom-window+smart-ink-x86_64.exe
-# so a build can be traced back to a main commit plus a set of features.
-# Artifact only - this branch is never released.
+# Builds a Windows installer for a tagged state of the `exploration`
+# integration branch. Tagging is the deliberate act - pushes do not build.
+#
+#   git tag exp-2026-09-11 && git push origin exp-2026-09-11
+#     -> rnote-win-installer-exp-2026-09-11+zoom-window-x86_64.exe
+#     -> About dialog: 0.15.0+zoom-window (exp-2026-09-11)
+#
+# The tag names the build; the feature list is derived from the merges, so
+# it cannot drift from what is actually in the binary. Artifact only -
+# this branch is never released.
 
 "on":
   push:
-    branches:
-      - exploration
-  workflow_dispatch:
+    tags:
+      - "exp-*"
 
 jobs:
   build:
@@ -39,14 +43,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Full history: the installer name is derived from the merge commits.
+          # Full history: the version is derived from the merge commits.
           fetch-depth: 0
 
-      - name: Set installer name
-        id: set_installer_name
+      - name: Set installer name and version
+        id: build_identity
         shell: bash
         run: |
-          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --no-tags --quiet origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/exploration:refs/remotes/origin/exploration
+          # A tag carries no branch, so refuse anything not on exploration.
+          if ! git merge-base --is-ancestor HEAD origin/exploration; then
+            echo "::error title=Wrong branch::${GITHUB_REF_NAME} is not on exploration"
+            exit 1
+          fi
           base="$(git merge-base origin/main HEAD)"
           # Every feature enters `exploration` as a merge, so its subject
           # ("Merge branch 'zoom-window' into exploration") is the source of
@@ -55,10 +66,10 @@ jobs:
             | sed -n "s/^Merge branch '\([^']*\)'.*/\1/p" \
             | awk '!seen[$0]++' \
             | sed -e 's/^/+/' | tr -d '\n')"
-          name="rnote-win-installer-mainHEAD-$(git rev-parse --short=7 "${base}")${features}-x86_64"
+          name="rnote-win-installer-${GITHUB_REF_NAME}${features}-x86_64"
           echo "name=$(echo "${name}" | sed -e 's/[^A-Za-z0-9._+-]/_/g')" >> $GITHUB_OUTPUT
-          # The same suffix goes into the About dialog via -Dversion-extra.
-          echo "version_extra=${features}" >> $GITHUB_OUTPUT
+          # Shown in the About dialog, appended to the project version.
+          echo "version_extra=${features} (${GITHUB_REF_NAME})" >> $GITHUB_OUTPUT
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c
@@ -83,8 +94,8 @@ jobs:
 
       - name: Setup
         run: |
-          just ci=true setup-win-installer '${{ steps.set_installer_name.outputs.name }}'
-          just configure -Dversion-extra='${{ steps.set_installer_name.outputs.version_extra }}'
+          just ci=true setup-win-installer '${{ steps.build_identity.outputs.name }}'
+          just configure -Dversion-extra='${{ steps.build_identity.outputs.version_extra }}'
 
       - name: Build
         run: just ci=true build
@@ -95,6 +106,6 @@ jobs:
       - name: Upload installer (workflow artifact)
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.set_installer_name.outputs.name }}
-          path: _mesonbuild/${{ steps.set_installer_name.outputs.name }}.exe
+          name: ${{ steps.build_identity.outputs.name }}
+          path: _mesonbuild/${{ steps.build_identity.outputs.name }}.exe
           if-no-files-found: error
