@@ -21,6 +21,9 @@ name: Exploration Windows Installer
 jobs:
   build:
     runs-on: windows-2025
+    permissions:
+      # needed for publishing the installer as a release asset
+      contents: write
     defaults:
       run:
         shell: msys2 {0}
@@ -114,3 +117,35 @@ jobs:
           name: ${{ steps.build_identity.outputs.name }}
           path: _mesonbuild/${{ steps.build_identity.outputs.name }}.exe
           if-no-files-found: error
+
+      # A workflow artifact can only be downloaded by someone logged in to
+      # GitHub. A release asset on a public repository is a plain URL, so
+      # students and colleagues can fetch the installer without an account.
+      #
+      # One rolling release, always the same asset name, so that URL never
+      # changes and can be handed out once:
+      #   /releases/download/exploration-latest/rnote-win-installer-exploration-x86_64.exe
+      # Which build it currently holds is in the release notes, and in the
+      # version the installed app reports.
+      - name: Publish installer (rolling release)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROLLING_TAG: exploration-latest
+        run: |
+          stable="_mesonbuild/rnote-win-installer-exploration-x86_64.exe"
+          cp "_mesonbuild/${{ steps.build_identity.outputs.name }}.exe" "${stable}"
+          notes="Rolling integration build of the exploration branch, not a release.
+
+          Built from tag ${GITHUB_REF_NAME}, reports version
+          0.15.0${{ steps.build_identity.outputs.version_extra }}."
+          # Move the rolling tag here, so the release points at what it holds.
+          git tag -f "${ROLLING_TAG}"
+          git push -f origin "refs/tags/${ROLLING_TAG}"
+          if gh release view "${ROLLING_TAG}" >/dev/null 2>&1; then
+            gh release edit "${ROLLING_TAG}" --notes "${notes}"
+          else
+            gh release create "${ROLLING_TAG}" --prerelease \
+              --title "Exploration build" --notes "${notes}"
+          fi
+          gh release upload "${ROLLING_TAG}" "${stable}" --clobber
