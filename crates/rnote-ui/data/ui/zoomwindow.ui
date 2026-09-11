@@ -103,6 +103,20 @@
                 </property>
               </object>
             </child>
+            <child>
+              <object class="GtkDropDown" id="line_start_dropdown">
+                <property name="tooltip-text" translatable="yes">Where a new line starts</property>
+                <property name="valign">center</property>
+                <property name="model">
+                  <object class="GtkStringList">
+                    <items>
+                      <item translatable="yes">Page edge</item>
+                      <item translatable="yes">Where placed</item>
+                    </items>
+                  </object>
+                </property>
+              </object>
+            </child>
           </object>
         </child>
         <child>

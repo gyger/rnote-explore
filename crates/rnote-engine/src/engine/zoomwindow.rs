@@ -2,7 +2,7 @@
 use crate::WidgetFlags;
 use crate::engine::Engine;
 use crate::pens::{PenMode, PenStyle};
-use crate::zoomwindow::{BoxScale, BoxShift};
+use crate::zoomwindow::{BoxScale, BoxShift, LineStart};
 use p2d::math::Vector2;
 use rnote_compose::eventresult::EventPropagation;
 use rnote_compose::penevent::PenEvent;
@@ -41,6 +41,10 @@ impl Engine {
 
     pub fn zoom_window_set_return_height(&mut self, height: f64) {
         self.zoom_window.set_return_height(height);
+    }
+
+    pub fn zoom_window_set_line_start(&mut self, line_start: LineStart) {
+        self.zoom_window.set_line_start(line_start);
     }
 
     /// Handle a pen event coming from the panel. The element must already be in document coordinates.

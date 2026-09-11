@@ -7,9 +7,10 @@ pub(crate) use zoomcanvas::RnZoomCanvas;
 // Imports
 use crate::RnCanvas;
 use gtk4::{
-    CompositeTemplate, SpinButton, ToggleButton, Widget, glib, glib::clone, prelude::*,
+    CompositeTemplate, DropDown, SpinButton, ToggleButton, Widget, glib, glib::clone, prelude::*,
     subclass::prelude::*,
 };
+use rnote_engine::zoomwindow::LineStart;
 
 mod imp {
     use super::*;
@@ -24,6 +25,8 @@ mod imp {
         pub(crate) auto_advance_toggle: TemplateChild<ToggleButton>,
         #[template_child]
         pub(crate) return_height_spinbutton: TemplateChild<SpinButton>,
+        #[template_child]
+        pub(crate) line_start_dropdown: TemplateChild<DropDown>,
     }
 
     #[glib::object_subclass]
@@ -57,6 +60,11 @@ mod imp {
                 move |_| zoomwindow.push_settings()
             ));
             self.return_height_spinbutton.connect_value_changed(clone!(
+                #[weak(rename_to=zoomwindow)]
+                self.obj(),
+                move |_| zoomwindow.push_settings()
+            ));
+            self.line_start_dropdown.connect_selected_notify(clone!(
                 #[weak(rename_to=zoomwindow)]
                 self.obj(),
                 move |_| zoomwindow.push_settings()
@@ -112,9 +120,21 @@ impl RnZoomWindow {
         let mut engine = canvas.engine_mut();
         let _ = engine.zoom_window_set_auto_advance(imp.auto_advance_toggle.is_active());
         engine.zoom_window_set_return_height(imp.return_height_spinbutton.value());
+        engine
+            .zoom_window_set_line_start(line_start_from_index(imp.line_start_dropdown.selected()));
         drop(engine);
 
         canvas.queue_draw();
         imp.zoomcanvas.queue_draw();
+    }
+}
+
+/// Map the dropdown rows to the engine setting. Row order as in the template.
+fn line_start_from_index(index: u32) -> LineStart {
+    const LAST_PLACED_ROW: u32 = 1;
+    if index == LAST_PLACED_ROW {
+        LineStart::LastPlaced
+    } else {
+        LineStart::PageEdge
     }
 }

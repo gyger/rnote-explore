@@ -20,6 +20,16 @@ pub enum BoxScale {
     Grow,
 }
 
+/// Where a new line starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineStart {
+    /// Left edge of the page the box is on.
+    #[default]
+    PageEdge,
+    /// The x where the box was last dragged to.
+    LastPlaced,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DragMode {
     Move,
@@ -55,6 +65,9 @@ pub struct ZoomWindow {
     box_width: f64,
     /// Vertical distance of a new line, in document units.
     return_height: f64,
+    line_start: LineStart,
+    /// The x of the last explicit placement of the box.
+    line_start_x: f64,
     /// Whether writing into the advance zone moves the box forward.
     auto_advance: bool,
     drag: Option<BoxDrag>,
@@ -77,6 +90,8 @@ impl Default for ZoomWindow {
                 .with_size(Self::PANEL_SIZE_DEFAULT),
             box_width: Self::BOX_WIDTH_DEFAULT,
             return_height: Self::RETURN_HEIGHT_DEFAULT,
+            line_start: LineStart::default(),
+            line_start_x: 0.0,
             auto_advance: true,
             drag: None,
             stroke_pending: false,
@@ -132,6 +147,14 @@ impl ZoomWindow {
 
     pub fn set_return_height(&mut self, height: f64) {
         self.return_height = height.max(1.0);
+    }
+
+    pub fn line_start(&self) -> LineStart {
+        self.line_start
+    }
+
+    pub fn set_line_start(&mut self, line_start: LineStart) {
+        self.line_start = line_start;
     }
 
     pub fn auto_advance(&self) -> bool {
@@ -247,7 +270,7 @@ impl ZoomWindow {
 
         match drag.mode {
             DragMode::Move => {
-                let _ = self.move_box_to(drag.start_bounds.mins + delta, doc);
+                let _ = self.place_box(drag.start_bounds.mins + delta, doc);
             }
             DragMode::Resize => {
                 self.box_width = (drag.start_bounds.extents()[0] + delta[0])
@@ -300,13 +323,27 @@ impl ZoomWindow {
         self.move_box_to(origin, doc)
     }
 
-    /// Move the box to the start of the next line: document left edge, one return height down.
+    /// Place the box by hand. Its x becomes the start of following lines.
+    pub(crate) fn place_box(&mut self, origin: Vector2, doc: &Document) -> WidgetFlags {
+        let widget_flags = self.move_box_to(origin, doc);
+        self.line_start_x = self.box_bounds().mins[0];
+        widget_flags
+    }
+
+    /// Move the box to the start of the next line, one return height down.
     pub(crate) fn new_line(&mut self, doc: &Document) -> WidgetFlags {
-        let origin = Vector2::new(
-            doc.bounds().mins[0],
-            self.box_bounds().mins[1] + self.return_height,
-        );
+        let x = match self.line_start {
+            LineStart::PageEdge => self.page_left(doc),
+            LineStart::LastPlaced => self.line_start_x,
+        };
+        let origin = Vector2::new(x, self.box_bounds().mins[1] + self.return_height);
         self.move_box_to(origin, doc)
+    }
+
+    /// Left edge of the page the box is on. Pages tile the plane aligned to the coordinate origin.
+    fn page_left(&self, doc: &Document) -> f64 {
+        let page_width = doc.config.format.size()[0];
+        (self.box_bounds().mins[0] / page_width).floor() * page_width
     }
 
     pub(crate) fn scale_box(
@@ -632,15 +669,33 @@ mod tests {
     }
 
     #[test]
-    fn new_line_returns_to_left_edge() {
-        let doc = Document::default();
+    fn new_line_returns_to_page_edge() {
+        let mut doc = Document::default();
+        doc.x = -1000.0;
+        doc.width = 3000.0;
+        let page_width = doc.config.format.size()[0];
         let mut zoom_window = ZoomWindow::default();
-        zoom_window.move_box_to(Vector2::new(200.0, 100.0), &doc);
+        zoom_window.place_box(Vector2::new(page_width + 200.0, 100.0), &doc);
 
         zoom_window.new_line(&doc);
         let bounds = zoom_window.box_bounds();
 
-        assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
+        assert_relative_eq!(bounds.mins[0], page_width);
+        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+    }
+
+    #[test]
+    fn new_line_returns_to_line_start() {
+        let doc = Document::default();
+        let mut zoom_window = ZoomWindow::default();
+        zoom_window.set_line_start(LineStart::LastPlaced);
+        zoom_window.place_box(Vector2::new(200.0, 100.0), &doc);
+        zoom_window.shift_box(BoxShift::Right, &doc);
+
+        zoom_window.new_line(&doc);
+        let bounds = zoom_window.box_bounds();
+
+        assert_relative_eq!(bounds.mins[0], 200.0);
         assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
     }
 }
