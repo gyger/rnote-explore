@@ -116,10 +116,13 @@ impl ZoomWindow {
     const RETURN_HEIGHT_DEFAULT: f64 = 32.0;
     /// Right part of the box that triggers the advance, as fraction of the box width.
     const ADVANCE_ZONE_FRACTION: f64 = 0.25;
+    #[cfg(feature = "ui")]
     const BOX_BORDER_WIDTH: f64 = 1.5;
     /// Side of the resize handle square, in surface pixels.
     const HANDLE_SIZE: f64 = 14.0;
+    #[cfg(feature = "ui")]
     const BOX_COLOR: piet::Color = rnote_compose::color::GNOME_BLUES[3];
+    #[cfg(feature = "ui")]
     const ADVANCE_ZONE_ALPHA: f64 = 0.15;
 
     pub fn visible(&self) -> bool {
