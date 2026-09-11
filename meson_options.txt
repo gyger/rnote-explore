@@ -35,3 +35,9 @@ option(
   value: 'C:\\msys64\\mingw64',
   description: 'Only relevant for builds on Windows: the path of the installed msys/mingw64 environment.',
 )
+option(
+  'version-extra',
+  type: 'string',
+  value: '',
+  description: 'Appended to the displayed version, e.g. "+zoom-window" to mark an integration build carrying that feature.',
+)

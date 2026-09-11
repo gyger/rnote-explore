@@ -19,6 +19,7 @@ build_cli = get_option('cli')
 ci = get_option('ci')
 win_build_environment_path = get_option('win-build-environment-path')
 win_installer_name = get_option('win-installer-name')
+version_extra = get_option('version-extra')
 
 app_name = 'rnote'
 app_name_capitalized = 'Rnote'
@@ -56,6 +57,10 @@ else
     version_suffix = patch
     rust_target_folder = 'release'
 endif
+
+# Integration builds append the features they carry, so the About dialog
+# reads e.g. "0.15.0+zoom-window" instead of a bare upstream version.
+version_suffix = version_suffix + version_extra
 
 # Dependencies
 dependency('glib-2.0', version: '>= 2.76')
