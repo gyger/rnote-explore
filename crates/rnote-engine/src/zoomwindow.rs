@@ -115,7 +115,13 @@ impl ZoomWindow {
     const BOX_SHIFT_FRACTION: f64 = 0.5;
     const RETURN_HEIGHT_DEFAULT: f64 = 32.0;
     /// Right part of the box that triggers the advance, as fraction of the box width.
-    const ADVANCE_ZONE_FRACTION: f64 = 0.25;
+    ///
+    /// Narrow, so writing has to reach the edge of the box before it moves.
+    const ADVANCE_ZONE_FRACTION: f64 = 0.10;
+    /// How much of the box an advance keeps in view, as fraction of the box width.
+    ///
+    /// What was just written stays on screen, so the next letters can be joined onto it.
+    const ADVANCE_OVERLAP_FRACTION: f64 = 0.25;
     /// Room left on the line below which it counts as full, in document units.
     const ADVANCE_REMAINDER_MIN: f64 = 1.0;
     #[cfg(feature = "ui")]
@@ -187,8 +193,8 @@ impl ZoomWindow {
 
     /// React to a finished stroke at `pos`.
     ///
-    /// Ending a stroke in the advance zone shifts the box so the zone becomes its left part.
-    /// Past the right document edge the box wraps to a new line instead.
+    /// Ending a stroke in the advance zone shifts the box forward, keeping what was written
+    /// in view. At the right page edge the box wraps to a new line instead.
     pub(crate) fn advance_after_stroke(&mut self, pos: Vector2, doc: &Document) -> WidgetFlags {
         // Repeated pen-up events (proximity, button quirks) must not advance again.
         let pending = std::mem::replace(&mut self.stroke_pending, false);
@@ -211,9 +217,12 @@ impl ZoomWindow {
         self.move_box_to(bounds.mins + Vector2::new(step, 0.0), doc)
     }
 
-    /// How far one auto-advance moves the box: a box width less the zone that triggered it.
+    /// How far one auto-advance moves the box: a box width less the part it keeps in view.
+    ///
+    /// Independent of the zone that triggers it, so the trigger can be made eager or patient
+    /// without changing how much of the writing stays on screen.
     fn advance_step(&self) -> f64 {
-        self.box_bounds().extents()[0] * (1.0 - Self::ADVANCE_ZONE_FRACTION)
+        self.box_bounds().extents()[0] * (1.0 - Self::ADVANCE_OVERLAP_FRACTION)
     }
 
     /// Handle a main canvas pen event that may move or resize the box.
@@ -607,6 +616,27 @@ mod tests {
 
         assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
         assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+    }
+
+    #[test]
+    fn advance_keeps_the_overlap_whatever_triggers_it() {
+        // The trigger zone and the kept overlap are separate settings: the step follows the
+        // overlap alone, so the zone can be tuned without changing what stays in view.
+        let doc = Document::default();
+        let mut zoom_window = ZoomWindow::default();
+        let before = zoom_window.box_bounds();
+        let width = before.extents()[0];
+
+        zoom_window.begin_stroke();
+        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
+        let after = zoom_window.box_bounds();
+
+        assert_relative_eq!(
+            after.mins[0] - before.mins[0],
+            width * (1.0 - ZoomWindow::ADVANCE_OVERLAP_FRACTION)
+        );
+        // What was written in the zone is still on screen after the jump.
+        assert!(after.mins[0] < before.maxs[0] - width * ZoomWindow::ADVANCE_ZONE_FRACTION);
     }
 
     #[test]
