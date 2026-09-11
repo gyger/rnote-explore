@@ -35,6 +35,7 @@ pub(crate) mod strokewidthpicker;
 pub(crate) mod unitentry;
 pub(crate) mod utils;
 pub(crate) mod workspacebrowser;
+pub(crate) mod zoomwindow;
 
 // Re-exports
 pub(crate) use app::RnApp;
@@ -59,6 +60,7 @@ pub(crate) use strokecontentpreview::RnStrokeContentPreview;
 pub(crate) use strokewidthpicker::RnStrokeWidthPicker;
 pub(crate) use unitentry::RnUnitEntry;
 pub(crate) use workspacebrowser::RnWorkspaceBrowser;
+pub(crate) use zoomwindow::{RnZoomCanvas, RnZoomWindow};
 
 // Renames
 extern crate parry2d_f64 as p2d;

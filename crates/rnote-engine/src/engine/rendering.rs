@@ -130,6 +130,9 @@ impl Engine {
         let image_scale = self.camera.image_scale();
         let scale_factor = self.camera.scale_factor();
 
+        self.zoom_window
+            .regenerate_background(&self.document.config.background);
+
         match self.document.config.background.gen_tile_image(image_scale) {
             Ok(image) => {
                 self.background_tile_image = Some(image);
@@ -180,6 +183,8 @@ impl Engine {
         self.draw_origin_indicator_to_gtk_snapshot(snapshot)?;
         self.store
             .draw_strokes_to_gtk_snapshot(snapshot, doc_bounds, viewport);
+        self.zoom_window
+            .draw_box_to_gtk_snapshot(snapshot, &self.camera);
         snapshot.restore();
         /*
                let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(surface_bounds));
