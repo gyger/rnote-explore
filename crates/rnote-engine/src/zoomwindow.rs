@@ -126,8 +126,10 @@ impl ZoomWindow {
         self.visible
     }
 
-    pub fn set_visible(&mut self, visible: bool) -> WidgetFlags {
+    /// Show or hide the panel. A hidden panel holds no background tile and skips its regeneration.
+    pub fn set_visible(&mut self, visible: bool, background: &Background) -> WidgetFlags {
         self.visible = visible;
+        self.regenerate_background(background);
         redraw()
     }
 
@@ -375,8 +377,17 @@ impl ZoomWindow {
         self.move_box_to(origin, doc)
     }
 
-    /// Regenerate the background tile for the panel zoom.
+    /// Regenerate the background tile for the panel zoom. Nothing is kept while the panel is hidden.
     pub(crate) fn regenerate_background(&mut self, background: &Background) {
+        if !self.visible {
+            self.tile_image = None;
+            #[cfg(feature = "ui")]
+            {
+                self.tile_texture = None;
+            }
+            return;
+        }
+
         match background.gen_tile_image(self.camera.image_scale()) {
             Ok(image) => self.tile_image = Some(image),
             Err(e) => {
@@ -506,6 +517,22 @@ mod tests {
     use rnote_compose::penpath::Element;
 
     #[test]
+    fn hidden_panel_has_no_tile() {
+        let background = Background::default();
+        let mut zoom_window = ZoomWindow::default();
+
+        zoom_window.regenerate_background(&background);
+        assert!(zoom_window.tile_image.is_none());
+
+        let _ = zoom_window.set_visible(true, &background);
+        assert!(zoom_window.tile_image.is_some());
+
+        let _ = zoom_window.set_visible(false, &background);
+        zoom_window.regenerate_background(&background);
+        assert!(zoom_window.tile_image.is_none());
+    }
+
+    #[test]
     fn panel_resize_keeps_box() {
         let doc = Document::default();
         let mut zoom_window = ZoomWindow::default();
@@ -567,7 +594,7 @@ mod tests {
         let camera = Camera::default();
         let background = Background::default();
         let mut zoom_window = ZoomWindow::default();
-        let _ = zoom_window.set_visible(true);
+        let _ = zoom_window.set_visible(true, &background);
         let before = zoom_window.box_bounds();
         let start = before.center();
         let delta = Vector2::new(40.0, 20.0);
@@ -617,7 +644,7 @@ mod tests {
         let camera = Camera::default();
         let background = Background::default();
         let mut zoom_window = ZoomWindow::default();
-        let _ = zoom_window.set_visible(true);
+        let _ = zoom_window.set_visible(true, &background);
         let before = zoom_window.box_bounds();
 
         let outside = PenEvent::Down {
@@ -649,7 +676,7 @@ mod tests {
         let camera = Camera::default();
         let background = Background::default();
         let mut zoom_window = ZoomWindow::default();
-        let _ = zoom_window.set_visible(true);
+        let _ = zoom_window.set_visible(true, &background);
         let before = zoom_window.box_bounds();
 
         let down = PenEvent::Down {

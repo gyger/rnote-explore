@@ -12,7 +12,8 @@ use std::time::Instant;
 /// Zoom window operations. The panel writes into the same store as the main canvas.
 impl Engine {
     pub fn zoom_window_set_visible(&mut self, visible: bool) -> WidgetFlags {
-        self.zoom_window.set_visible(visible)
+        self.zoom_window
+            .set_visible(visible, &self.document.config.background)
     }
 
     /// Set the panel size in surface pixels.
@@ -189,7 +190,7 @@ mod tests {
     fn reveal_scrolls_to_box() {
         let mut engine = Engine::default();
         let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
-        let _ = engine.zoom_window.set_visible(true);
+        let _ = engine.zoom_window_set_visible(true);
         let far = Vector2::new(400.0, 3000.0);
         let _ = engine.zoom_window.move_box_to(far, &engine.document);
         assert!(
