@@ -68,10 +68,13 @@ jobs:
             | sed -n "s/^Merge \(remote-tracking \)\?branch '\(origin\/\)\?\([^']*\)'.*/\3/p" \
             | awk '$0 != "main" && !seen[$0]++' \
             | sed -e 's/^/+/' | tr -d '\n')"
-          name="rnote-win-installer-${GITHUB_REF_NAME}${features}-x86_64"
-          echo "name=$(echo "${name}" | sed -e 's/[^A-Za-z0-9._+-]/_/g')" >> $GITHUB_OUTPUT
+          # `just configure` interpolates its arguments unquoted, and the
+          # installer name becomes a file name, so neither may hold anything
+          # but the safe set - spaces and parentheses break the build.
+          safe() { echo "$1" | sed -e 's/[^A-Za-z0-9._+-]/_/g'; }
+          echo "name=$(safe "rnote-win-installer-${GITHUB_REF_NAME}${features}-x86_64")" >> $GITHUB_OUTPUT
           # Shown in the About dialog, appended to the project version.
-          echo "version_extra=${features} (${GITHUB_REF_NAME})" >> $GITHUB_OUTPUT
+          echo "version_extra=$(safe "${features}-${GITHUB_REF_NAME}")" >> $GITHUB_OUTPUT
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c
