@@ -50,6 +50,15 @@
             <attribute name="toggle" />
             <attribute name="action">win.zoom-window</attribute>
           </item>
+          <item>
+            <attribute name="label" translatable="yes">_Presentation Window</attribute>
+            <attribute name="toggle" />
+            <attribute name="action">win.presentation</attribute>
+          </item>
+          <item>
+            <attribute name="label" translatable="yes">Flip Presentation _Screen</attribute>
+            <attribute name="action">win.presentation-flip-screen</attribute>
+          </item>
         </section>
         <section>
           <item>

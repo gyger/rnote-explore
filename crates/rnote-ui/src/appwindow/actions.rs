@@ -180,6 +180,12 @@ impl RnAppWindow {
         self.add_action(&action_focus_mode);
         let action_zoom_window = gio::PropertyAction::new("zoom-window", self, "zoom-window");
         self.add_action(&action_zoom_window);
+        let action_presentation = gio::PropertyAction::new("presentation", self, "presentation");
+        self.add_action(&action_presentation);
+        let action_presentation_flip_screen =
+            gio::SimpleAction::new("presentation-flip-screen", None);
+        action_presentation_flip_screen.set_enabled(false);
+        self.add_action(&action_presentation_flip_screen);
         let action_zoom_window_box_left = gio::SimpleAction::new("zoom-window-box-left", None);
         self.add_action(&action_zoom_window_box_left);
         let action_zoom_window_box_right = gio::SimpleAction::new("zoom-window-box-right", None);
@@ -531,6 +537,14 @@ impl RnAppWindow {
                 }
             ));
         }
+
+        action_presentation_flip_screen.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                appwindow.flip_presentation_screen();
+            }
+        ));
 
         action_zoom_window_new_line.connect_activate(clone!(
             #[weak(rename_to=appwindow)]
@@ -1245,6 +1259,8 @@ impl RnAppWindow {
         app.set_accels_for_action("win.keyboard-shortcuts", &["<Ctrl>question"]);
         app.set_accels_for_action("win.toggle-overview", &["<Ctrl><Shift>o"]);
         app.set_accels_for_action("win.zoom-window", &["F7"]);
+        app.set_accels_for_action("win.presentation", &["F8"]);
+        app.set_accels_for_action("win.presentation-flip-screen", &["<Shift>F8"]);
         app.set_accels_for_action("win.open-canvasmenu", &["F9"]);
         app.set_accels_for_action("win.open-appmenu", &["F10"]);
         app.set_accels_for_action("win.open-doc", &["<Ctrl>o"]);

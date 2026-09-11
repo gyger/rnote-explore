@@ -5,13 +5,13 @@ mod imp;
 
 // Imports
 use crate::{
-    FileType, RnApp, RnCanvas, RnCanvasWrapper, RnMainHeader, RnOverlays, RnSidebar, config,
-    dialogs, env,
+    FileType, RnApp, RnCanvas, RnCanvasWrapper, RnMainHeader, RnOverlays, RnPresentationWindow,
+    RnSidebar, config, dialogs, env,
 };
 use adw::{prelude::*, subclass::prelude::*};
 use core::cell::{Ref, RefMut};
 use gettextrs::gettext;
-use gtk4::{Application, IconTheme, Widget, gdk, gio, glib};
+use gtk4::{Application, IconTheme, Widget, gdk, gio, glib, glib::clone};
 use p2d::math::Vector2;
 use rnote_compose::Color;
 use rnote_engine::document::DocumentConfig;
@@ -252,8 +252,90 @@ impl RnAppWindow {
         app_icon_theme.add_resource_path((String::from(config::APP_IDPATH) + "icons").as_str());
     }
 
+    /// The audience window, once the toggle has opened it for the first time.
+    pub(crate) fn presentation_window(&self) -> Option<RnPresentationWindow> {
+        self.imp().presentation_window.borrow().clone()
+    }
+
+    /// Open or close the audience window.
+    ///
+    /// It follows the active canvas only while shown, so the engines of other tabs keep
+    /// their audience camera idle.
+    pub(crate) fn show_presentation_window(&self, show: bool) {
+        if !show {
+            if let Some(window) = self.presentation_window() {
+                window.set_canvas(None);
+                window.set_visible(false);
+            }
+            self.refresh_presentation_flip_action();
+            return;
+        }
+
+        let window = self.presentation_window().unwrap_or_else(|| {
+            let window = RnPresentationWindow::new();
+            window.set_application(self.application().as_ref());
+
+            // Closing the window is another way of switching the toggle off.
+            window.connect_close_request(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_| {
+                    appwindow.set_property("presentation", false);
+                    glib::Propagation::Proceed
+                }
+            ));
+
+            // A projector plugged in or unplugged decides whether flipping has a target.
+            WidgetExt::display(self).monitors().connect_items_changed(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _, _, _| appwindow.refresh_presentation_flip_action()
+            ));
+
+            self.imp().presentation_window.replace(Some(window.clone()));
+            window
+        });
+
+        window.set_canvas(self.active_tab_canvas().as_ref());
+        window.present_on_audience_monitor(self);
+        self.refresh_presentation_flip_action();
+    }
+
+    /// Flipping needs an audience window to move, and a second screen to move it to.
+    fn refresh_presentation_flip_action(&self) {
+        let Some(action) = self
+            .lookup_action("presentation-flip-screen")
+            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+        else {
+            return;
+        };
+
+        let shown = self
+            .presentation_window()
+            .is_some_and(|window| window.is_visible());
+        let monitor_count = WidgetExt::display(self).monitors().n_items();
+        action.set_enabled(shown && monitor_count > 1);
+    }
+
+    /// Move the audience window to the next display.
+    pub(crate) fn flip_presentation_screen(&self) {
+        let Some(window) = self
+            .presentation_window()
+            .filter(|window| window.is_visible())
+        else {
+            return;
+        };
+        window.flip_screen(self);
+    }
+
     /// Called to close the window
     pub(crate) fn close_force(&self) {
+        if let Some(window) = self.imp().presentation_window.take() {
+            window.destroy();
+        }
+
         if self.app().settings_schema_found() {
             // Saving all state
             if let Err(e) = self.save_to_settings() {
@@ -284,6 +366,12 @@ impl RnAppWindow {
         if widget_flags.redraw {
             canvas.queue_draw();
             self.overlays().zoomwindow().queue_redraw();
+        }
+        // The audience camera follows the page, so scrolling without a redraw still concerns it.
+        if widget_flags.redraw || widget_flags.view_modified {
+            if let Some(window) = self.presentation_window() {
+                window.queue_redraw();
+            }
         }
         if widget_flags.resize {
             canvas.queue_resize();

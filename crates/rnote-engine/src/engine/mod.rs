@@ -3,6 +3,7 @@ pub mod animation;
 pub mod config;
 pub mod export;
 pub mod import;
+pub mod presentation;
 pub mod rendering;
 pub mod snapshot;
 pub mod strokecontent;
@@ -27,6 +28,7 @@ use crate::store::StrokeKey;
 use crate::store::render_comp::{self, RenderCompState};
 use crate::strokes::content::GeneratedContentImages;
 use crate::strokes::textstroke::{TextAttribute, TextStyle};
+use crate::presentation::Presentation;
 use crate::zoomwindow::ZoomWindow;
 use crate::{Camera, Document, PenHolder, StrokeStore};
 use crate::{SelectionCollision, WidgetFlags};
@@ -196,6 +198,9 @@ pub struct Engine {
     // Magnified writing panel, not part of the document
     #[serde(skip)]
     pub zoom_window: ZoomWindow,
+    // Audience view of the same store, not part of the document
+    #[serde(skip)]
+    pub presentation: Presentation,
 
     #[cfg(feature = "ui")]
     #[serde(skip)]
@@ -232,6 +237,7 @@ impl Default for Engine {
             camera: Camera::default(),
             penholder: PenHolder::default(),
             zoom_window: ZoomWindow::default(),
+            presentation: Presentation::default(),
 
             #[cfg(feature = "ui")]
             audioplayer: None,

@@ -19,6 +19,7 @@ pub mod ext;
 pub mod fileformats;
 pub mod image;
 pub mod pens;
+pub mod presentation;
 pub mod selectioncollision;
 pub mod snap;
 pub mod store;

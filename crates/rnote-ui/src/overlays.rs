@@ -257,6 +257,12 @@ impl RnOverlays {
                     .overlays()
                     .zoomwindow()
                     .set_canvas(Some(&active_canvaswrapper.canvas()));
+                if let Some(presentation_window) = appwindow
+                    .presentation_window()
+                    .filter(|window| window.is_visible())
+                {
+                    presentation_window.set_canvas(Some(&active_canvaswrapper.canvas()));
+                }
             }
         ));
 
