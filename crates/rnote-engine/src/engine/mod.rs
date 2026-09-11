@@ -491,6 +491,16 @@ impl Engine {
         pen_mode: Option<PenMode>,
         now: Instant,
     ) -> (EventPropagation, WidgetFlags) {
+        // A shown zoom box takes pen input landing on it, to be moved or resized.
+        if let Some(widget_flags) = self.zoom_window.handle_box_event(
+            &event,
+            &self.camera,
+            &self.document,
+            &self.document.config.background,
+        ) {
+            return (EventPropagation::Stop, widget_flags);
+        }
+
         self.penholder
             .handle_pen_event(event, pen_mode, now, &mut engine_view_mut!(self))
     }

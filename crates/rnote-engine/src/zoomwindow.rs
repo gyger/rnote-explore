@@ -3,6 +3,7 @@ use crate::document::Background;
 use crate::{Camera, Document, Image, WidgetFlags};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
+use rnote_compose::penevent::PenEvent;
 use tracing::error;
 
 /// Direction to shift the zoom box along the line.
@@ -17,6 +18,20 @@ pub enum BoxShift {
 pub enum BoxScale {
     Shrink,
     Grow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragMode {
+    Move,
+    Resize,
+}
+
+/// A running drag of the box on the main canvas.
+#[derive(Debug, Clone, Copy)]
+struct BoxDrag {
+    mode: DragMode,
+    start_pos: Vector2,
+    start_bounds: Aabb,
 }
 
 /// A magnified view of a small box on the document, for writing small and neat.
@@ -42,6 +57,7 @@ pub struct ZoomWindow {
     return_height: f64,
     /// Whether writing into the advance zone moves the box forward.
     auto_advance: bool,
+    drag: Option<BoxDrag>,
     // Background tile at the panel zoom, regenerated when the zoom or the background changes.
     tile_image: Option<Image>,
     #[cfg(feature = "ui")]
@@ -58,6 +74,7 @@ impl Default for ZoomWindow {
             box_width: Self::BOX_WIDTH_DEFAULT,
             return_height: Self::RETURN_HEIGHT_DEFAULT,
             auto_advance: true,
+            drag: None,
             tile_image: None,
             #[cfg(feature = "ui")]
             tile_texture: None,
@@ -79,6 +96,8 @@ impl ZoomWindow {
     /// Right part of the box that triggers the advance, as fraction of the box width.
     const ADVANCE_ZONE_FRACTION: f64 = 0.25;
     const BOX_BORDER_WIDTH: f64 = 1.5;
+    /// Side of the resize handle square, in surface pixels.
+    const HANDLE_SIZE: f64 = 14.0;
     const BOX_COLOR: piet::Color = rnote_compose::color::GNOME_BLUES[3];
     const ADVANCE_ZONE_ALPHA: f64 = 0.15;
 
@@ -141,6 +160,82 @@ impl ZoomWindow {
         }
 
         self.move_box_to(bounds.mins + Vector2::new(shift, 0.0), doc)
+    }
+
+    /// Handle a main canvas pen event that may move or resize the box.
+    ///
+    /// Pen down inside the box starts a move, on the bottom-right handle a resize.
+    /// Returns `None` when the event is not for the box and the pens should see it.
+    pub(crate) fn handle_box_event(
+        &mut self,
+        event: &PenEvent,
+        camera: &Camera,
+        doc: &Document,
+        background: &Background,
+    ) -> Option<WidgetFlags> {
+        if !self.visible {
+            return None;
+        }
+
+        match event {
+            PenEvent::Down { element, .. } => {
+                if self.drag.is_none() {
+                    self.drag = Some(self.drag_at(element.pos, camera)?);
+                }
+                self.drag_to(element.pos, doc, background);
+                Some(redraw())
+            }
+            PenEvent::Up { element, .. } => {
+                self.drag?;
+                self.drag_to(element.pos, doc, background);
+                self.drag = None;
+                Some(redraw())
+            }
+            PenEvent::Proximity { .. } | PenEvent::Cancel => self.drag.take().map(|_| redraw()),
+            PenEvent::KeyPressed { .. } | PenEvent::Text { .. } => None,
+        }
+    }
+
+    /// The drag a pen down at `pos` starts, if any.
+    fn drag_at(&self, pos: Vector2, camera: &Camera) -> Option<BoxDrag> {
+        let mode = if self.resize_handle_bounds(camera).contains_local_point(pos) {
+            DragMode::Resize
+        } else if self.box_bounds().contains_local_point(pos) {
+            DragMode::Move
+        } else {
+            return None;
+        };
+
+        Some(BoxDrag {
+            mode,
+            start_pos: pos,
+            start_bounds: self.box_bounds(),
+        })
+    }
+
+    fn drag_to(&mut self, pos: Vector2, doc: &Document, background: &Background) {
+        let Some(drag) = self.drag else {
+            return;
+        };
+        let delta = pos - drag.start_pos;
+
+        match drag.mode {
+            DragMode::Move => {
+                let _ = self.move_box_to(drag.start_bounds.mins + delta, doc);
+            }
+            DragMode::Resize => {
+                self.box_width = (drag.start_bounds.extents()[0] + delta[0])
+                    .clamp(Self::BOX_WIDTH_MIN, Self::BOX_WIDTH_MAX);
+                let _ = self.refit(drag.start_bounds.mins, doc);
+                self.regenerate_background(background);
+            }
+        }
+    }
+
+    /// The resize handle: a square on the bottom-right corner, sized in surface pixels of `camera`.
+    fn resize_handle_bounds(&self, camera: &Camera) -> Aabb {
+        let half = Self::HANDLE_SIZE * 0.5 / camera.total_zoom();
+        Aabb::from_half_extents(self.box_bounds().maxs, Vector2::splat(half))
     }
 
     /// Set the panel size in surface pixels. The box keeps its width and origin.
@@ -303,6 +398,13 @@ impl ZoomWindow {
         );
 
         snapshot.append_border(&rounded_rect, &[border_width; 4], &[color; 4]);
+        snapshot.append_node(
+            gsk::ColorNode::new(
+                &color,
+                &graphene::Rect::from_p2d_aabb(self.resize_handle_bounds(camera)),
+            )
+            .upcast(),
+        );
         self.draw_advance_zone_to_gtk_snapshot(snapshot);
     }
 
@@ -338,6 +440,7 @@ fn redraw() -> WidgetFlags {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use rnote_compose::penpath::Element;
 
     #[test]
     fn panel_resize_keeps_box() {
@@ -390,6 +493,76 @@ mod tests {
 
         assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
         assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+    }
+
+    #[test]
+    fn drag_inside_box_moves_it() {
+        let doc = Document::default();
+        let camera = Camera::default();
+        let background = Background::default();
+        let mut zoom_window = ZoomWindow::default();
+        let _ = zoom_window.set_visible(true);
+        let before = zoom_window.box_bounds();
+        let start = before.center();
+        let delta = Vector2::new(40.0, 20.0);
+
+        let outside = PenEvent::Down {
+            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
+            modifier_keys: Default::default(),
+        };
+        assert!(
+            zoom_window
+                .handle_box_event(&outside, &camera, &doc, &background)
+                .is_none()
+        );
+
+        for event in [
+            PenEvent::Down {
+                element: Element::new(start, 1.0),
+                modifier_keys: Default::default(),
+            },
+            PenEvent::Down {
+                element: Element::new(start + delta, 1.0),
+                modifier_keys: Default::default(),
+            },
+            PenEvent::Up {
+                element: Element::new(start + delta, 1.0),
+                modifier_keys: Default::default(),
+            },
+        ] {
+            assert!(
+                zoom_window
+                    .handle_box_event(&event, &camera, &doc, &background)
+                    .is_some()
+            );
+        }
+
+        assert_relative_eq!(zoom_window.box_bounds().mins, before.mins + delta);
+    }
+
+    #[test]
+    fn drag_handle_resizes_box() {
+        let doc = Document::default();
+        let camera = Camera::default();
+        let background = Background::default();
+        let mut zoom_window = ZoomWindow::default();
+        let _ = zoom_window.set_visible(true);
+        let before = zoom_window.box_bounds();
+
+        let down = PenEvent::Down {
+            element: Element::new(before.maxs, 1.0),
+            modifier_keys: Default::default(),
+        };
+        let up = PenEvent::Up {
+            element: Element::new(before.maxs + Vector2::new(50.0, 0.0), 1.0),
+            modifier_keys: Default::default(),
+        };
+        zoom_window.handle_box_event(&down, &camera, &doc, &background);
+        zoom_window.handle_box_event(&up, &camera, &doc, &background);
+        let after = zoom_window.box_bounds();
+
+        assert_relative_eq!(after.mins, before.mins);
+        assert_relative_eq!(after.extents()[0], before.extents()[0] + 50.0);
     }
 
     #[test]

@@ -57,7 +57,13 @@ impl Engine {
             _ => None,
         };
 
-        let (propagation, mut widget_flags) = self.handle_pen_event(event, pen_mode, now);
+        // Straight to the pens: the box drag interception is for the main canvas only.
+        let (propagation, mut widget_flags) = self.penholder.handle_pen_event(
+            event,
+            pen_mode,
+            now,
+            &mut crate::engine_view_mut!(self),
+        );
         if let Some(pos) = stroke_end {
             widget_flags |= self.zoom_window.advance_after_stroke(pos, &self.document);
         }
