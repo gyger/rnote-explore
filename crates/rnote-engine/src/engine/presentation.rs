@@ -1,6 +1,10 @@
 // Imports
 use crate::WidgetFlags;
 use crate::engine::Engine;
+#[cfg(feature = "ui")]
+use crate::engine::EngineView;
+#[cfg(feature = "ui")]
+use crate::Camera;
 #[cfg(any(feature = "ui", test))]
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
@@ -86,8 +90,47 @@ impl Engine {
             .draw_strokes_immediate(&mut piet_cx, doc_bounds, page, camera.image_scale());
         piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
 
+        self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;
+
         snapshot.pop();
         Ok(())
+    }
+
+    /// Draw the laser pointer trail on the audience view, through the audience camera.
+    ///
+    /// The audience gets no pen overlays - selection handles, pen indicators and the like are
+    /// the lecturer's business. The laser is the exception: pointing at the page is meant for
+    /// the audience, so it is the one overlay that must reach the projector.
+    #[cfg(feature = "ui")]
+    fn draw_laser_to_gtk_snapshot(
+        &self,
+        snapshot: &gtk4::Snapshot,
+        camera: &Camera,
+    ) -> anyhow::Result<()> {
+        use crate::drawable::DrawableOnDoc;
+        use crate::pens::PenStyle;
+        use crate::pens::pensconfig::toolsconfig::ToolStyle;
+
+        let config = self.config.read();
+        let laser_active = self.current_pen_style_w_override() == PenStyle::Tools
+            && config.pens_config.tools_config.style == ToolStyle::Laser;
+        if !laser_active {
+            return Ok(());
+        }
+
+        // The penholder draws through the camera it is handed, so the audience camera puts the
+        // trail on the page where the lecturer is pointing.
+        let engine_view = EngineView {
+            tasks_tx: self.tasks_tx.clone(),
+            config: &config,
+            document: &self.document,
+            store: &self.store,
+            camera,
+            audioplayer: &self.audioplayer,
+            animation: &self.animation,
+        };
+        self.penholder
+            .draw_on_doc_to_gtk_snapshot(snapshot, &engine_view)
     }
 }
 
