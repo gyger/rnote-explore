@@ -10,6 +10,7 @@ use gtk4::{
     CompositeTemplate, DropDown, SpinButton, ToggleButton, Widget, glib, glib::clone, prelude::*,
     subclass::prelude::*,
 };
+use rnote_engine::document::background::PatternStyle;
 use rnote_engine::zoomwindow::LineStart;
 
 mod imp {
@@ -107,7 +108,22 @@ impl RnZoomWindow {
 
     pub(crate) fn set_canvas(&self, canvas: Option<&RnCanvas>) {
         self.imp().zoomcanvas.set_canvas(canvas);
+        self.default_return_height(canvas);
         self.push_settings();
+    }
+
+    /// Ruled or grid paper knows its line spacing; take it as the return height.
+    fn default_return_height(&self, canvas: Option<&RnCanvas>) {
+        let Some(canvas) = canvas else {
+            return;
+        };
+        let background = canvas.engine_ref().document.config.background;
+        if matches!(background.pattern, PatternStyle::None) {
+            return;
+        }
+        self.imp()
+            .return_height_spinbutton
+            .set_value(background.pattern_size[1]);
     }
 
     /// Push auto-advance and return height into the followed engine.
