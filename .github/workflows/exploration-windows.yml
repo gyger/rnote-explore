@@ -1,0 +1,96 @@
+---
+
+name: Exploration Windows Installer
+
+# Builds a Windows installer for the long-lived `exploration` integration
+# branch. The installer is named after what went into it, e.g.
+#   rnote-win-installer-mainHEAD-bbc5354+zoom-window+smart-ink-x86_64.exe
+# so a build can be traced back to a main commit plus a set of features.
+# Artifact only - this branch is never released.
+
+"on":
+  push:
+    branches:
+      - exploration
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Install Inno 6
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\") {
+            echo "inno already installed"
+          } else {
+            winget install -e --id JRSoftware.InnoSetup -v 6.4.3 --accept-package-agreements `
+              --accept-source-agreements --disable-interactivity --scope machine
+            if (Test-Path "C:\Program Files (x86)\Inno Setup 6\") {
+              echo "inno installed successfully"
+            } else {
+              throw "could not find inno's installation folder"
+            }
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Full history: the installer name is derived from the merge commits.
+          fetch-depth: 0
+
+      - name: Set installer name
+        id: set_installer_name
+        shell: bash
+        run: |
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          base="$(git merge-base origin/main HEAD)"
+          # Every feature enters `exploration` as a merge, so its subject
+          # ("Merge branch 'zoom-window' into exploration") is the source of
+          # truth for the name. A re-merged branch is only listed once.
+          features="$(git log --merges --reverse --format=%s "${base}..HEAD" \
+            | sed -n "s/^Merge branch '\([^']*\)'.*/\1/p" \
+            | awk '!seen[$0]++' \
+            | sed -e 's/^/+/' | tr -d '\n')"
+          name="rnote-win-installer-mainHEAD-$(git rev-parse --short=7 "${base}")${features}-x86_64"
+          echo "name=$(echo "${name}" | sed -e 's/[^A-Za-z0-9._+-]/_/g')" >> $GITHUB_OUTPUT
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c
+        with:
+          release: false
+          update: true
+          install: |
+            mingw-w64-x86_64-binutils
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95-gnu
+
+      - name: Configure PATH
+        run: echo "export PATH=$PATH:/c/Users/$USER/.cargo/bin:/c/Program\ Files\ \(x86\)/Inno\ Setup\ 6" > ~/.bashrc
+
+      - name: Prerequisites
+        run: |
+          cargo install --locked just
+          just ci=true prerequisites-win
+
+      - name: Setup
+        run: just ci=true setup-win-installer '${{ steps.set_installer_name.outputs.name }}'
+
+      - name: Build
+        run: just ci=true build
+
+      - name: Build installer
+        run: just ci=true build-win-installer
+
+      - name: Upload installer (workflow artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.set_installer_name.outputs.name }}
+          path: _mesonbuild/${{ steps.set_installer_name.outputs.name }}.exe
+          if-no-files-found: error
