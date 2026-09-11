@@ -105,6 +105,52 @@
             </property>
           </object>
         </child>
+        <child>
+          <object class="GtkStackPage" id="presentation_stackpage">
+            <property name="name">presentation_page</property>
+            <property name="title" translatable="yes">Presentation</property>
+            <property name="child">
+              <object class="GtkBox" id="presentation_page">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="margin_top">6</property>
+                <property name="margin_bottom">6</property>
+                <property name="margin_start">6</property>
+                <property name="margin_end">6</property>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon_name">presentation-lock-page-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Lock Page: hold the audience on this page while you look elsewhere</property>
+                    <property name="action-name">win.presentation-lock-page</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon_name">presentation-freeze-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Freeze View: hold the audience on a still, hiding what you draw next</property>
+                    <property name="action-name">win.presentation-freeze</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon_name">presentation-blank-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Blank Screen: show the audience an empty screen</property>
+                    <property name="action-name">win.presentation-blank</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+              </object>
+            </property>
+          </object>
+        </child>
       </object>
     </child>
   </template>

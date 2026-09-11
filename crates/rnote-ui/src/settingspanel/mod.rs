@@ -277,7 +277,8 @@ mod imp {
 
             // A screen ratio names its landscape shape, so 16:9 must not come out as 9:16.
             if predefined_format.is_screen_ratio() {
-                self.obj().set_format_orientation(format::Orientation::Landscape);
+                self.obj()
+                    .set_format_orientation(format::Orientation::Landscape);
             }
             let orientation = self.obj().format_orientation();
 

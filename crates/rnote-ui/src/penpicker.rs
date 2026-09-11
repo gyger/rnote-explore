@@ -25,6 +25,10 @@ mod imp {
         #[template_child]
         pub(crate) tools_toggle: TemplateChild<ToggleButton>,
         #[template_child]
+        pub(crate) presentation_separator: TemplateChild<gtk4::Separator>,
+        #[template_child]
+        pub(crate) presentation_toggle: TemplateChild<ToggleButton>,
+        #[template_child]
         pub(crate) undo_button: TemplateChild<Button>,
         #[template_child]
         pub(crate) redo_button: TemplateChild<Button>,
@@ -106,8 +110,56 @@ impl RnPenPicker {
         self.imp().redo_button.get()
     }
 
+    /// Show the presentation button. It belongs to the presentation window, not to a pen, so
+    /// it only sits in the picker while there is an audience to control.
+    pub(crate) fn set_presentation_visible(&self, visible: bool) {
+        let imp = self.imp();
+
+        imp.presentation_separator.set_visible(visible);
+        imp.presentation_toggle.set_visible(visible);
+        if !visible {
+            imp.presentation_toggle.set_active(false);
+        }
+    }
+
     pub(crate) fn init(&self, appwindow: &RnAppWindow) {
         let imp = self.imp();
+
+        // The presentation controls take over the pen sidebar, the way a pen's settings do.
+        imp.presentation_toggle.connect_toggled(clone!(
+            #[weak]
+            appwindow,
+            move |presentation_toggle| {
+                if presentation_toggle.is_active() {
+                    appwindow
+                        .overlays()
+                        .penssidebar()
+                        .sidebar_stack()
+                        .set_visible_child_name("presentation_page");
+                } else {
+                    // Back to the settings of the pen in hand.
+                    appwindow.refresh_ui();
+                }
+            }
+        ));
+
+        // Picking a pen leaves the presentation page, so the button must not stay lit.
+        appwindow
+            .overlays()
+            .penssidebar()
+            .sidebar_stack()
+            .connect_visible_child_name_notify(clone!(
+                #[weak(rename_to=penpicker)]
+                self,
+                move |sidebar_stack| {
+                    let on_presentation_page = sidebar_stack
+                        .visible_child_name()
+                        .is_some_and(|name| name == "presentation_page");
+                    if !on_presentation_page {
+                        penpicker.imp().presentation_toggle.set_active(false);
+                    }
+                }
+            ));
 
         imp.brush_toggle.connect_toggled(clone!(
             #[weak]

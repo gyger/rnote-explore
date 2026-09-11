@@ -1,11 +1,11 @@
 // Imports
 use crate::RnCanvas;
 use gtk4::{Widget, gdk, glib, graphene, prelude::*, subclass::prelude::*};
-use rnote_engine::ext::GrapheneRectExt;
-use std::cell::RefCell;
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::ext::AabbExt;
+use rnote_engine::ext::GrapheneRectExt;
+use std::cell::RefCell;
 use tracing::error;
 
 mod imp {
@@ -114,7 +114,8 @@ impl RnPresentationCanvas {
 
         if let Some(canvas) = canvas {
             let mut engine = canvas.engine_mut();
-            let _ = engine.presentation_set_size(self.bounds().extents(), self.scale_factor() as f64);
+            let _ =
+                engine.presentation_set_size(self.bounds().extents(), self.scale_factor() as f64);
             let _ = engine.presentation_set_visible(true);
         }
         self.queue_draw();

@@ -294,11 +294,13 @@ impl RnAppWindow {
             ));
 
             // A projector plugged in or unplugged decides whether flipping has a target.
-            WidgetExt::display(self).monitors().connect_items_changed(clone!(
-                #[weak(rename_to=appwindow)]
-                self,
-                move |_, _, _, _| appwindow.refresh_presentation_actions()
-            ));
+            WidgetExt::display(self)
+                .monitors()
+                .connect_items_changed(clone!(
+                    #[weak(rename_to=appwindow)]
+                    self,
+                    move |_, _, _, _| appwindow.refresh_presentation_actions()
+                ));
 
             self.imp().presentation_window.replace(Some(window.clone()));
             window
@@ -315,9 +317,14 @@ impl RnAppWindow {
         let shown = self
             .presentation_window()
             .is_some_and(|window| window.is_visible());
+        self.overlays().set_presentation_chrome_visible(shown);
         let monitor_count = WidgetExt::display(self).monitors().n_items();
 
-        for name in ["presentation-lock-page", "presentation-freeze", "presentation-blank"] {
+        for name in [
+            "presentation-lock-page",
+            "presentation-freeze",
+            "presentation-blank",
+        ] {
             if let Some(action) = self.presentation_action(name) {
                 action.set_enabled(shown);
             }
@@ -329,7 +336,11 @@ impl RnAppWindow {
 
     /// Closing the audience window leaves nothing switched on behind it.
     fn reset_presentation_actions(&self) {
-        for name in ["presentation-lock-page", "presentation-freeze", "presentation-blank"] {
+        for name in [
+            "presentation-lock-page",
+            "presentation-freeze",
+            "presentation-blank",
+        ] {
             if let Some(action) = self.presentation_action(name) {
                 action.set_state(&false.to_variant());
             }
