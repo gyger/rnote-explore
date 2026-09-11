@@ -30,6 +30,12 @@ pub enum PredefinedFormat {
     UsLetter,
     #[serde(rename = "us_legal")]
     UsLegal,
+    #[serde(rename = "ratio_16_9")]
+    Ratio16By9,
+    #[serde(rename = "ratio_16_10")]
+    Ratio16By10,
+    #[serde(rename = "ratio_4_3")]
+    Ratio4By3,
     #[serde(rename = "custom")]
     Custom,
 }
@@ -54,6 +60,17 @@ impl TryFrom<u32> for PredefinedFormat {
 }
 
 impl PredefinedFormat {
+    /// Long edge of the screen ratio formats in mm, the A4 long edge.
+    const SCREEN_LONG_EDGE: f64 = 297.0;
+
+    /// Whether the format is a screen ratio, meant to match a projector.
+    pub fn is_screen_ratio(&self) -> bool {
+        matches!(
+            self,
+            PredefinedFormat::Ratio16By9 | PredefinedFormat::Ratio16By10 | PredefinedFormat::Ratio4By3
+        )
+    }
+
     pub fn size_mm(&self, orientation: Orientation) -> Option<Vector2> {
         let mut size_portrait = match self {
             PredefinedFormat::A6 => Some((105.0, 148.0)),
@@ -63,6 +80,11 @@ impl PredefinedFormat {
             PredefinedFormat::A2 => Some((420.0, 594.0)),
             PredefinedFormat::UsLetter => Some((215.9, 279.4)),
             PredefinedFormat::UsLegal => Some((215.9, 355.6)),
+            // Screen ratios, for projecting a page that fills the beamer without bars.
+            // Sized from the A4 long edge, so a screen page is as wide as a landscape A4.
+            PredefinedFormat::Ratio16By9 => Some((Self::SCREEN_LONG_EDGE * 9.0 / 16.0, Self::SCREEN_LONG_EDGE)),
+            PredefinedFormat::Ratio16By10 => Some((Self::SCREEN_LONG_EDGE * 10.0 / 16.0, Self::SCREEN_LONG_EDGE)),
+            PredefinedFormat::Ratio4By3 => Some((Self::SCREEN_LONG_EDGE * 3.0 / 4.0, Self::SCREEN_LONG_EDGE)),
             PredefinedFormat::Custom => None,
         };
         if let Some((width, height)) = &mut size_portrait
@@ -71,6 +93,23 @@ impl PredefinedFormat {
             std::mem::swap(width, height);
         }
         size_portrait.map(|(width, height)| Vector2::new(width, height))
+    }
+}
+
+#[cfg(test)]
+mod predefined_format_tests {
+    use super::*;
+
+    #[test]
+    fn screen_ratios_are_named_landscape() {
+        for (format, ratio) in [
+            (PredefinedFormat::Ratio16By9, 16.0 / 9.0),
+            (PredefinedFormat::Ratio16By10, 16.0 / 10.0),
+            (PredefinedFormat::Ratio4By3, 4.0 / 3.0),
+        ] {
+            let size = format.size_mm(Orientation::Landscape).unwrap();
+            assert!((size[0] / size[1] - ratio).abs() < 1e-6);
+        }
     }
 }
 

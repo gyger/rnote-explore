@@ -274,7 +274,12 @@ mod imp {
 
         fn apply_predefined_format(&self) {
             let predefined_format = self.obj().format_predefined_format();
-            let orientation = self.temporary_format.borrow().orientation();
+
+            // A screen ratio names its landscape shape, so 16:9 must not come out as 9:16.
+            if predefined_format.is_screen_ratio() {
+                self.obj().set_format_orientation(format::Orientation::Landscape);
+            }
+            let orientation = self.obj().format_orientation();
 
             if let Some(predefined_size_mm) = predefined_format.size_mm(orientation) {
                 // reset to mm as default for presets
