@@ -1,7 +1,7 @@
 // Imports
 use crate::document::Background;
 use crate::{Camera, Document, Image, WidgetFlags};
-use p2d::bounding_volume::Aabb;
+use p2d::bounding_volume::{Aabb, BoundingVolume};
 use p2d::math::Vector2;
 use rnote_compose::penevent::PenEvent;
 use tracing::error;
@@ -58,6 +58,10 @@ pub struct ZoomWindow {
     /// Whether writing into the advance zone moves the box forward.
     auto_advance: bool,
     drag: Option<BoxDrag>,
+    /// A stroke started in the panel and has not ended yet. Advance fires once per stroke.
+    stroke_pending: bool,
+    /// The main canvas pen is down. A stroke that started outside must not grab the box when it crosses it.
+    canvas_pen_down: bool,
     // Background tile at the panel zoom, regenerated when the zoom or the background changes.
     tile_image: Option<Image>,
     #[cfg(feature = "ui")]
@@ -75,6 +79,8 @@ impl Default for ZoomWindow {
             return_height: Self::RETURN_HEIGHT_DEFAULT,
             auto_advance: true,
             drag: None,
+            stroke_pending: false,
+            canvas_pen_down: false,
             tile_image: None,
             #[cfg(feature = "ui")]
             tile_texture: None,
@@ -144,12 +150,19 @@ impl ZoomWindow {
         Aabb::new(Vector2::new(zone_start, bounds.mins[1]), bounds.maxs)
     }
 
+    /// Note a stroke starting in the panel.
+    pub(crate) fn begin_stroke(&mut self) {
+        self.stroke_pending = true;
+    }
+
     /// React to a finished stroke at `pos`.
     ///
     /// Ending a stroke in the advance zone shifts the box so the zone becomes its left part.
     /// Past the right document edge the box wraps to a new line instead.
     pub(crate) fn advance_after_stroke(&mut self, pos: Vector2, doc: &Document) -> WidgetFlags {
-        if !self.auto_advance || !self.advance_zone().contains_local_point(pos) {
+        // Repeated pen-up events (proximity, button quirks) must not advance again.
+        let pending = std::mem::replace(&mut self.stroke_pending, false);
+        if !pending || !self.auto_advance || !self.advance_zone().contains_local_point(pos) {
             return WidgetFlags::default();
         }
 
@@ -179,28 +192,41 @@ impl ZoomWindow {
 
         match event {
             PenEvent::Down { element, .. } => {
+                let first_down = !std::mem::replace(&mut self.canvas_pen_down, true);
                 if self.drag.is_none() {
+                    if !first_down {
+                        return None;
+                    }
                     self.drag = Some(self.drag_at(element.pos, camera)?);
                 }
                 self.drag_to(element.pos, doc, background);
                 Some(redraw())
             }
             PenEvent::Up { element, .. } => {
+                self.canvas_pen_down = false;
                 self.drag?;
                 self.drag_to(element.pos, doc, background);
                 self.drag = None;
                 Some(redraw())
             }
-            PenEvent::Proximity { .. } | PenEvent::Cancel => self.drag.take().map(|_| redraw()),
+            PenEvent::Proximity { .. } | PenEvent::Cancel => {
+                self.canvas_pen_down = false;
+                self.drag.take().map(|_| redraw())
+            }
             PenEvent::KeyPressed { .. } | PenEvent::Text { .. } => None,
         }
     }
 
     /// The drag a pen down at `pos` starts, if any.
+    /// Touching just outside the border counts too, so a thin box is easy to grab.
     fn drag_at(&self, pos: Vector2, camera: &Camera) -> Option<BoxDrag> {
         let mode = if self.resize_handle_bounds(camera).contains_local_point(pos) {
             DragMode::Resize
-        } else if self.box_bounds().contains_local_point(pos) {
+        } else if self
+            .box_bounds()
+            .loosened(Self::HANDLE_SIZE / camera.total_zoom())
+            .contains_local_point(pos)
+        {
             DragMode::Move
         } else {
             return None;
@@ -472,9 +498,11 @@ mod tests {
         let mut zoom_window = ZoomWindow::default();
         let before = zoom_window.box_bounds();
 
+        zoom_window.begin_stroke();
         zoom_window.advance_after_stroke(before.center() - Vector2::new(1.0, 0.0), &doc);
         assert_relative_eq!(zoom_window.box_bounds().mins, before.mins);
 
+        zoom_window.begin_stroke();
         zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
         let after = zoom_window.box_bounds();
         assert!(after.mins[0] > before.mins[0]);
@@ -488,6 +516,7 @@ mod tests {
         let width = zoom_window.box_bounds().extents()[0];
         zoom_window.move_box_to(Vector2::new(doc.bounds().maxs[0] - width, 100.0), &doc);
 
+        zoom_window.begin_stroke();
         zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
         let bounds = zoom_window.box_bounds();
 
@@ -515,6 +544,11 @@ mod tests {
                 .handle_box_event(&outside, &camera, &doc, &background)
                 .is_none()
         );
+        let lift = PenEvent::Up {
+            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
+            modifier_keys: Default::default(),
+        };
+        zoom_window.handle_box_event(&lift, &camera, &doc, &background);
 
         for event in [
             PenEvent::Down {
@@ -538,6 +572,38 @@ mod tests {
         }
 
         assert_relative_eq!(zoom_window.box_bounds().mins, before.mins + delta);
+    }
+
+    #[test]
+    fn stroke_crossing_box_passes_through() {
+        let doc = Document::default();
+        let camera = Camera::default();
+        let background = Background::default();
+        let mut zoom_window = ZoomWindow::default();
+        let _ = zoom_window.set_visible(true);
+        let before = zoom_window.box_bounds();
+
+        let outside = PenEvent::Down {
+            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
+            modifier_keys: Default::default(),
+        };
+        let inside = PenEvent::Down {
+            element: Element::new(before.center(), 1.0),
+            modifier_keys: Default::default(),
+        };
+        let up = PenEvent::Up {
+            element: Element::new(before.center(), 1.0),
+            modifier_keys: Default::default(),
+        };
+        for event in [&outside, &inside, &up] {
+            assert!(
+                zoom_window
+                    .handle_box_event(event, &camera, &doc, &background)
+                    .is_none()
+            );
+        }
+
+        assert_relative_eq!(zoom_window.box_bounds().mins, before.mins);
     }
 
     #[test]

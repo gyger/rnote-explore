@@ -53,6 +53,10 @@ impl Engine {
         now: Instant,
     ) -> (EventPropagation, WidgetFlags) {
         let stroke_end = match (&event, self.current_pen_style_w_override()) {
+            (PenEvent::Down { .. }, PenStyle::Brush) => {
+                self.zoom_window.begin_stroke();
+                None
+            }
             (PenEvent::Up { element, .. }, PenStyle::Brush) => Some(element.pos),
             _ => None,
         };
@@ -100,6 +104,7 @@ impl Engine {
             doc_bounds,
             &self.document.config.background,
         );
+        self.zoom_window.draw_advance_zone_to_gtk_snapshot(snapshot);
         snapshot.restore();
 
         // Transform on the piet side, so cairo rasterizes at panel resolution instead of upscaling.

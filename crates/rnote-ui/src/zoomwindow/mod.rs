@@ -92,6 +92,11 @@ impl RnZoomWindow {
     }
 
     /// Follow `canvas`. Called when the active tab changes.
+    /// Redraw the magnified view. GTK caches child render nodes, so the inner canvas must be queued itself.
+    pub(crate) fn queue_redraw(&self) {
+        self.imp().zoomcanvas.queue_draw();
+    }
+
     pub(crate) fn set_canvas(&self, canvas: Option<&RnCanvas>) {
         self.imp().zoomcanvas.set_canvas(canvas);
         self.push_settings();
