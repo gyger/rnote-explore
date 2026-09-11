@@ -27,6 +27,10 @@ pub struct Presentation {
     visible: bool,
     /// Window geometry only: size and scale factor. Zoom and offset are per page.
     window: Camera,
+    /// The page the audience is held on, `None` while the view follows the lecturer.
+    locked_page: Option<Aabb>,
+    /// Whether the audience sees nothing but the letterbox.
+    blanked: bool,
 }
 
 impl Default for Presentation {
@@ -34,6 +38,8 @@ impl Default for Presentation {
         Self {
             visible: false,
             window: Camera::default().with_size(Self::WINDOW_SIZE_DEFAULT),
+            locked_page: None,
+            blanked: false,
         }
     }
 }
@@ -51,6 +57,35 @@ impl Presentation {
     pub(crate) fn set_visible(&mut self, visible: bool) -> WidgetFlags {
         self.visible = visible;
         redraw()
+    }
+
+    pub fn blanked(&self) -> bool {
+        self.blanked
+    }
+
+    /// Show the audience nothing but the letterbox, for taking their attention off the page.
+    pub(crate) fn set_blanked(&mut self, blanked: bool) -> WidgetFlags {
+        self.blanked = blanked;
+        redraw()
+    }
+
+    pub fn page_locked(&self) -> bool {
+        self.locked_page.is_some()
+    }
+
+    /// Hold the audience on `page`, or follow the lecturer again with `None`.
+    ///
+    /// Locking lets the lecturer look ahead at the next derivation, or back at an earlier
+    /// page, without taking the audience along. Ink written on the held page still appears -
+    /// the page is held, not the drawing.
+    pub(crate) fn lock_on(&mut self, page: Option<Aabb>) -> WidgetFlags {
+        self.locked_page = page;
+        redraw()
+    }
+
+    /// The page the audience sees: the locked one, else the lecturer's.
+    pub(crate) fn page_or(&self, lecturer_page: Aabb) -> Aabb {
+        self.locked_page.unwrap_or(lecturer_page)
     }
 
     /// Set the window size in surface pixels.

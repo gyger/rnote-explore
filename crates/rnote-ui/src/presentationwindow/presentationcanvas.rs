@@ -1,9 +1,11 @@
 // Imports
 use crate::RnCanvas;
-use gtk4::{Widget, glib, prelude::*, subclass::prelude::*};
+use gtk4::{Widget, gdk, glib, graphene, prelude::*, subclass::prelude::*};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::ext::AabbExt;
+use rnote_engine::ext::GrapheneRectExt;
+use std::cell::RefCell;
 use tracing::error;
 
 mod imp {
@@ -14,6 +16,8 @@ mod imp {
     #[derive(Debug, Default)]
     pub(crate) struct RnPresentationCanvas {
         pub(crate) canvas: glib::WeakRef<RnCanvas>,
+        /// The still shown while frozen: what the audience saw at the moment of freezing.
+        pub(crate) frozen_still: RefCell<Option<gdk::Texture>>,
     }
 
     #[glib::object_subclass]
@@ -57,6 +61,12 @@ mod imp {
 
         fn snapshot(&self, snapshot: &gtk4::Snapshot) {
             let obj = self.obj();
+
+            // Frozen: the audience keeps seeing the still, whatever the lecturer draws next.
+            if let Some(still) = self.frozen_still.borrow().as_ref() {
+                still.snapshot(snapshot, obj.width() as f64, obj.height() as f64);
+                return;
+            }
 
             let Some(canvas) = obj.canvas() else {
                 return;
@@ -104,10 +114,46 @@ impl RnPresentationCanvas {
 
         if let Some(canvas) = canvas {
             let mut engine = canvas.engine_mut();
-            let _ = engine.presentation_set_size(self.bounds().extents(), self.scale_factor() as f64);
+            let _ =
+                engine.presentation_set_size(self.bounds().extents(), self.scale_factor() as f64);
             let _ = engine.presentation_set_visible(true);
         }
         self.queue_draw();
+    }
+
+    /// Hold the audience on a still of what they see now, or let the view live again.
+    ///
+    /// Locking the page still shows the ink as it is written. Freezing does not: the audience
+    /// keeps the picture from the moment it was frozen, so the lecturer can prepare the next
+    /// step in plain sight.
+    pub(crate) fn set_frozen(&self, frozen: bool) {
+        let still = frozen.then(|| self.capture_still()).flatten();
+        self.imp().frozen_still.replace(still);
+        self.queue_draw();
+    }
+
+    /// Render what the audience sees right now into a texture.
+    fn capture_still(&self) -> Option<gdk::Texture> {
+        let canvas = self.canvas()?;
+        let renderer = self.native()?.renderer()?;
+        let bounds = self.bounds();
+        if bounds.extents()[0] <= 0.0 || bounds.extents()[1] <= 0.0 {
+            return None;
+        }
+
+        // Drawn through the engine rather than the widget, so this cannot recurse into the
+        // frozen branch of `snapshot()`.
+        let snapshot = gtk4::Snapshot::new();
+        if let Err(e) = canvas
+            .engine_ref()
+            .draw_presentation_to_gtk_snapshot(&snapshot, bounds)
+        {
+            error!("Capturing the presentation still failed, Err: {e:?}");
+            return None;
+        }
+
+        let node = snapshot.to_node()?;
+        Some(renderer.render_texture(&node, Some(&graphene::Rect::from_p2d_aabb(bounds))))
     }
 
     fn bounds(&self) -> Aabb {

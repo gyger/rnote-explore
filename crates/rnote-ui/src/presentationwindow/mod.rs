@@ -21,6 +21,11 @@ mod imp {
         /// The monitor picked by flipping, as an index into the display's monitor list.
         /// `None` picks the first monitor that is not the lecturer's.
         pub(crate) monitor_choice: Cell<Option<usize>>,
+        /// Held here as well as in the engine, to push onto the next followed canvas.
+        pub(crate) page_locked: Cell<bool>,
+        pub(crate) blanked: Cell<bool>,
+        /// Freezing belongs to the widget: it holds a still, not engine state.
+        pub(crate) frozen: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -75,6 +80,53 @@ impl RnPresentationWindow {
     /// Follow `canvas`. Called when the active tab changes.
     pub(crate) fn set_canvas(&self, canvas: Option<&RnCanvas>) {
         self.imp().presentationcanvas.set_canvas(canvas);
+        self.push_state();
+    }
+
+    /// Hold the audience on the page they are seeing, or let them follow the lecturer again.
+    ///
+    /// Ink written on the held page still appears - the page is held, not the drawing.
+    pub(crate) fn set_page_locked(&self, locked: bool) {
+        self.imp().page_locked.set(locked);
+        self.push_state();
+    }
+
+    /// Hold the audience on a still of what they see now, so nothing drawn next reaches them.
+    pub(crate) fn set_frozen(&self, frozen: bool) {
+        self.imp().frozen.set(frozen);
+        self.imp().presentationcanvas.set_frozen(frozen);
+    }
+
+    /// Show the audience nothing but the letterbox.
+    pub(crate) fn set_blanked(&self, blanked: bool) {
+        self.imp().blanked.set(blanked);
+        self.push_state();
+    }
+
+    /// The window owns freeze and blank, so every canvas it comes to follow gets them pushed.
+    fn push_state(&self) {
+        let imp = self.imp();
+        let Some(canvas) = imp.presentationcanvas.canvas() else {
+            return;
+        };
+
+        let mut engine = canvas.engine_mut();
+        let _ = engine.presentation_set_page_locked(imp.page_locked.get());
+        let _ = engine.presentation_set_blanked(imp.blanked.get());
+        drop(engine);
+
+        self.queue_redraw();
+    }
+
+    /// Re-shape the window after the page format changed.
+    ///
+    /// Fullscreen on a projector the page is letterboxed instead, so only a windowed audience
+    /// view follows the format.
+    pub(crate) fn refresh_page_ratio(&self) {
+        if self.is_fullscreen() {
+            return;
+        }
+        self.resize_to_page_ratio();
     }
 
     /// Redraw the audience view. GTK caches child render nodes, so the inner canvas must be
