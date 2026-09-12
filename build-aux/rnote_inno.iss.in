@@ -105,6 +105,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Run once so Defender's first-execution scan happens inside the progress bar,
+; not on the user's first launch.
+Filename: "{app}\bin\{#MyAppExeName}"; Parameters: "--help"; StatusMsg: "Preparing first launch..."; Flags: runhidden waituntilterminated
 Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
