@@ -105,6 +105,10 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; Warm up Defender's execute-time scan here rather than on the user's first
+; double-click: the verdict is cached per file instance, so each install pays
+; it once regardless. This moves the wait into the progress bar, not removes it.
+Filename: "{app}\bin\{#MyAppExeName}"; Parameters: "--help"; StatusMsg: "Preparing first launch..."; Flags: runhidden waituntilterminated
 Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
