@@ -1,16 +1,17 @@
 {
   "version": 5,
-  "prev": "9e7370e7b235946aaeca3d36571d79dcd056259c",
-  "head": "afa7159d13650579e1342e9704250262423d6617",
+  "prev": "74d629f5d2d30a4d73455f510e352cb4865715fb",
+  "head": "435706d508e97dc38601f080244501d1f76bd202",
   "applied": [
     "overlay-workflow",
-    "windows-installer-ci",
+    "windows-installer-ci"
+  ],
+  "unapplied": [
     "windows-defender-warmup",
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
