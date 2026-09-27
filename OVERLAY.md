@@ -58,6 +58,10 @@ Rnote-specific pitfalls:
   `stg refresh` the result into the patch that added those dependencies.
 - **Translations.** Patches don't touch `crates/rnote-ui/po/`. Upstream
   regenerates `rnote.pot`; new strings reach it from there.
+- **Workflow drift.** `overlay-windows-build.yml` copies the build steps
+  of upstream's `release-windows.yml`. When upstream changes those
+  (toolchain, action versions), port the change into
+  `windows-installer-ci`.
 
 ## Patches are intentions, not diffs
 
