@@ -32,8 +32,8 @@ fi
 
 git config alias.overlay-adopt '!sh tools/overlay-adopt.sh'
 git config alias.overlay-publish '!sh tools/overlay-publish.sh'
-# Move the `build` tag (default: to overlay) and push it; CI builds that commit.
-git config alias.overlay-build '!f() { git tag -f build "${1:-overlay}" && git push -f origin refs/tags/build; }; f'
+# Move the `overlay-build` tag (default: to overlay) and push it; CI builds that commit.
+git config alias.overlay-build '!f() { git tag -f overlay-build "${1:-overlay}" && git push -f origin refs/tags/overlay-build; }; f'
 
 if ! git rev-parse -q --verify refs/stacks/overlay >/dev/null; then
     sh tools/overlay-adopt.sh overlay

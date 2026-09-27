@@ -58,10 +58,9 @@ Rnote-specific pitfalls:
   `stg refresh` the result into the patch that added those dependencies.
 - **Translations.** Patches don't touch `crates/rnote-ui/po/`. Upstream
   regenerates `rnote.pot`; new strings reach it from there.
-- **Workflow drift.** `overlay-windows-build.yml` copies the build steps
-  of upstream's `release-windows.yml`. When upstream changes those
-  (toolchain, action versions), port the change into
-  `windows-installer-ci`.
+- **Workflows.** `windows-installer-ci` hooks into upstream's
+  `release-windows.yml` and `dist.yml`. Keep their guards when resolving
+  conflicts there: a fork must never build a general release.
 
 ## Patches are intentions, not diffs
 
@@ -163,24 +162,27 @@ thanks to `--atomic` the branch isn't updated either.
 
 ### Windows installer
 
-GitHub builds the Windows installer for the commit tagged `build` (patch
-`windows-installer-ci`, `.github/workflows/overlay-windows-build.yml`),
-and only then. To build the published overlay, move the tag and push it:
+GitHub builds the Windows installer for the commit tagged
+`overlay-build` (patch `windows-installer-ci`, upstream's
+`release-windows.yml`), and only then. To build the published overlay,
+move the tag and push it:
 
 ```bash
 git overlay-publish                 # the commit to build must be on origin
-git overlay-build                   # = git tag -f build overlay && git push -f origin refs/tags/build
+git overlay-build                   # = git tag -f overlay-build overlay && git push -f origin refs/tags/overlay-build
 git overlay-build <commit>          # or build another commit
 ```
 
 There is no versioning: each build replaces the previous one. The
-installer is attached to a public prerelease on the `build` tag, always
-under the same name, so this URL can be handed out once:
+installer is attached to a public prerelease on the `overlay-build` tag,
+marked unofficial, always under the same name, so this URL can be
+handed out once:
 
-https://github.com/gyger/rnote-explore/releases/download/build/rnote-win-installer-overlay-x86_64.exe
+https://github.com/gyger/rnote-explore/releases/download/overlay-build/rnote-win-installer-overlay-build-x86_64.exe
 
 The installed app reports e.g. `0.15.0+overlay-29ea24a` in its About
-dialog; the release notes list the patches it contains.
+dialog. On the fork, upstream's release and dist workflows never run, so
+no installer looks like an official Rnote release.
 
 Actions must be enabled for the fork. A tag pushed while Actions was off
 doesn't build later; run `git overlay-build` again.
