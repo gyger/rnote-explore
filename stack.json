@@ -1,11 +1,12 @@
 {
   "version": 5,
-  "prev": "4f87617811a4cd47158806b1b027b92f2235038d",
-  "head": "9efd88880a924547a80c599c3ba695e2a3b44bda",
+  "prev": "243cce1c3951e1fb7eac2d617a7c8e156d002c16",
+  "head": "57345f1a3585c062ee901b1c48bcdf80682b33d8",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
-    "windows-defender-warmup"
+    "windows-defender-warmup",
+    "zoom-window"
   ],
   "unapplied": [],
   "hidden": [],
@@ -18,6 +19,9 @@
     },
     "windows-installer-ci": {
       "oid": "01a8648877e7314c33886c09dc64ea77edd8156e"
+    },
+    "zoom-window": {
+      "oid": "57345f1a3585c062ee901b1c48bcdf80682b33d8"
     }
   }
 }

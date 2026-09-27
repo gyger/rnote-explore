@@ -1,0 +1,53 @@
+Bottom: fc99c259d9ecf06bbfdf0c7e42a27fdea0c7d4aa
+Top:    fc99c259d9ecf06bbfdf0c7e42a27fdea0c7d4aa
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-09-27 10:53:43 +0200
+
+Add Zoom Window panel for magnified writing
+
+Purpose: GoodNotes-style zoom window. A box on the page is shown
+magnified in a panel docked below the tabs; strokes written in the
+panel land inside the box, so small handwriting stays legible while
+writing. Toggle with F7 or the canvas menu.
+
+Behaviour:
+- Buttons move the box left/right, start a new line, resize it.
+- Auto-advance: finishing a brush stroke in the trigger zone (right
+  tenth of the box) moves the box on, keeping a quarter of the
+  writing in view. The line ends at the page the box is on; the last
+  step is clamped flush to the page border, the next stroke wraps.
+- A new line starts at the page's left edge or where the box was
+  last dragged to (toolbar choice). Return height defaults to the
+  row spacing of a lines/grid background.
+- On the main canvas, a first pen-down in (or just outside) the box
+  drags it; the bottom-right handle drags its width, height follows
+  the panel aspect.
+- The main camera scrolls by the smallest shift that keeps the box in
+  view; an axis where the box cannot fit follows only once the box
+  has left the view entirely (no flicker).
+
+Approach:
+- Engine: ZoomWindow (crates/rnote-engine/src/zoomwindow.rs) with its
+  own Camera. Panel strokes are drawn immediately with piet, because
+  the store caches stroke textures for one zoom and two views would
+  fight over it. The pen preview reuses the drawable code through an
+  EngineView built with the panel camera.
+- Input: panel events reuse canvas/input.rs through InputSurface
+  (which widget positions are relative to, which engine entry point
+  receives them), so backlog handling and stylus quirks stay in one
+  place. Box dragging is intercepted in Engine::handle_pen_event, in
+  document coordinates; panel input is never intercepted.
+- Advance is armed by pen-down and consumed by the first pen-up, so
+  the box never moves while the pen is down or jumps twice.
+- UI: crates/rnote-ui/src/zoomwindow/. The paned splits the whole
+  toolbar overlay from the panel so floating pickers stay above it.
+  GTK4 reuses cached child render nodes, so the inner canvas itself
+  must be queued for redraw. The panel binds the followed canvas'
+  cursor.
+- A hidden panel drops its background tile and does no tile work.
+
+Constraints: stock behaviour is unchanged while the panel is hidden.
+The file format is untouched. New sources must be listed in the
+crates' meson.build.
+
+Assisted by: Claude Code / Claude Fable 5.1, Claude Opus 5
