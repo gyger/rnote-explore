@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "b341b1481d019ec7a70a4d23f18bb5600d9fbaef",
-  "head": "91fc00f0a99f70886016b8dc539b026a99ab8117",
+  "prev": "4f87617811a4cd47158806b1b027b92f2235038d",
+  "head": "9efd88880a924547a80c599c3ba695e2a3b44bda",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -14,7 +14,7 @@
       "oid": "909a3a52aaff1813b41be01bd58d7701827d2cea"
     },
     "windows-defender-warmup": {
-      "oid": "91fc00f0a99f70886016b8dc539b026a99ab8117"
+      "oid": "9efd88880a924547a80c599c3ba695e2a3b44bda"
     },
     "windows-installer-ci": {
       "oid": "01a8648877e7314c33886c09dc64ea77edd8156e"
