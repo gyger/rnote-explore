@@ -1,5 +1,5 @@
 // Imports
-use crate::{RnMainHeader, RnOverlays, RnSidebar, config, dialogs};
+use crate::{RnMainHeader, RnOverlays, RnPresentationWindow, RnSidebar, config, dialogs};
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
 use gtk4::{
@@ -30,9 +30,11 @@ pub(crate) struct RnAppWindow {
     pub(crate) touch_drawing: Cell<bool>,
     pub(crate) focus_mode: Cell<bool>,
     pub(crate) zoom_window: Cell<bool>,
+    pub(crate) presentation: Cell<bool>,
     pub(crate) devel_mode: Cell<bool>,
     pub(crate) visual_debug: Cell<bool>,
 
+    pub(crate) presentation_window: RefCell<Option<RnPresentationWindow>>,
     pub(crate) drawing_pad_controller: RefCell<Option<PadController>>,
     pub(crate) autosave_source_id: RefCell<Option<glib::SourceId>>,
     pub(crate) periodic_configsave_source_id: RefCell<Option<glib::SourceId>>,
@@ -70,9 +72,11 @@ impl Default for RnAppWindow {
             touch_drawing: Cell::new(false),
             focus_mode: Cell::new(false),
             zoom_window: Cell::new(false),
+            presentation: Cell::new(false),
             devel_mode: Cell::new(false),
             visual_debug: Cell::new(false),
 
+            presentation_window: RefCell::new(None),
             drawing_pad_controller: RefCell::new(None),
             autosave_source_id: RefCell::new(None),
             periodic_configsave_source_id: RefCell::new(None),
@@ -177,6 +181,9 @@ impl ObjectImpl for RnAppWindow {
                 glib::ParamSpecBoolean::builder("zoom-window")
                     .default_value(false)
                     .build(),
+                glib::ParamSpecBoolean::builder("presentation")
+                    .default_value(false)
+                    .build(),
                 glib::ParamSpecBoolean::builder("devel-mode")
                     .default_value(false)
                     .build(),
@@ -204,6 +211,7 @@ impl ObjectImpl for RnAppWindow {
             "touch-drawing" => self.touch_drawing.get().to_value(),
             "focus-mode" => self.focus_mode.get().to_value(),
             "zoom-window" => self.zoom_window.get().to_value(),
+            "presentation" => self.presentation.get().to_value(),
             "devel-mode" => self.devel_mode.get().to_value(),
             "visual-debug" => self.visual_debug.get().to_value(),
             "save-in-progress" => self.save_in_progress.get().to_value(),
@@ -309,6 +317,12 @@ impl ObjectImpl for RnAppWindow {
                 self.zoom_window.replace(zoom_window);
 
                 self.overlays.zoomwindow().set_visible(zoom_window);
+            }
+            "presentation" => {
+                let presentation: bool = value.get().expect("The value needs to be of type `bool`");
+                self.presentation.replace(presentation);
+
+                obj.show_presentation_window(presentation);
             }
             "devel-mode" => {
                 let devel_mode = value
