@@ -1,8 +1,9 @@
 {
   "version": 5,
-  "prev": "d3c3e1ee4f269b4d8e4d484c0d7d0cc1ac5cad7f",
-  "head": "bb0efaf62f42dffbce087e5cb2ac4980efc67b04",
-  "applied": [
+  "prev": "c5346eb5244b7caef7734cfdb6dab54043c493ab",
+  "head": "bbc5354502ba2fc83eec2670b535348825e679a6",
+  "applied": [],
+  "unapplied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
@@ -10,7 +11,6 @@
     "screen-ratio-formats",
     "dual-screen"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
