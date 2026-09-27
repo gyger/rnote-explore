@@ -102,4 +102,6 @@ rnote_ui_sources = files(
     'workspacebrowser/workspacesbar/workspacelist.rs',
     'workspacebrowser/workspacesbar/workspacelistentry.rs',
     'workspacebrowser/workspacesbar/workspacerow.rs',
+    'zoomwindow/mod.rs',
+    'zoomwindow/zoomcanvas.rs',
 )
