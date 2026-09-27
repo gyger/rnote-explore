@@ -86,7 +86,7 @@ mod imp {
             };
             if let Err(e) = canvas
                 .engine_ref()
-                .draw_zoom_window_to_gtk_snapshot(snapshot, obj.bounds())
+                .draw_zoom_to_gtk_snapshot(snapshot, obj.bounds())
             {
                 error!("Snapshot zoom canvas failed, Err: {e:?}");
             }

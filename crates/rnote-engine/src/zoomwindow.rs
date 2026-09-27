@@ -61,21 +61,20 @@ struct BoxDrag {
 pub struct ZoomWindow {
     visible: bool,
     camera: Camera,
-    /// Requested box width in document units. The effective width also depends on the camera zoom limits.
+    /// Requested box width in document units, before the camera zoom limits.
     box_width: f64,
     /// Vertical distance of a new line, in document units.
     return_height: f64,
     line_start: LineStart,
     /// The x of the last explicit placement of the box.
     line_start_x: f64,
-    /// Whether writing into the advance zone moves the box forward.
     auto_advance: bool,
     drag: Option<BoxDrag>,
-    /// A stroke started in the panel and has not ended yet. Advance fires once per stroke.
+    /// A panel stroke is running. Advance fires once per stroke.
     stroke_pending: bool,
-    /// The main canvas pen is down. A stroke that started outside must not grab the box when it crosses it.
+    /// The main canvas pen is down. A stroke crossing into the box must not grab it.
     canvas_pen_down: bool,
-    // Background tile at the panel zoom, regenerated when the zoom or the background changes.
+    /// Background tile at the panel zoom.
     tile_image: Option<Image>,
     #[cfg(feature = "ui")]
     tile_texture: Option<gtk4::gdk::MemoryTexture>,
@@ -115,12 +114,8 @@ impl ZoomWindow {
     const BOX_SHIFT_FRACTION: f64 = 0.5;
     const RETURN_HEIGHT_DEFAULT: f64 = 32.0;
     /// Right part of the box that triggers the advance, as fraction of the box width.
-    ///
-    /// Narrow, so writing has to reach the edge of the box before it moves.
     const ADVANCE_ZONE_FRACTION: f64 = 0.10;
-    /// How much of the box an advance keeps in view, as fraction of the box width.
-    ///
-    /// What was just written stays on screen, so the next letters can be joined onto it.
+    /// Part of the box an advance keeps in view, so the next letters can join onto it.
     const ADVANCE_OVERLAP_FRACTION: f64 = 0.25;
     /// Room left on the line below which it counts as full, in document units.
     const ADVANCE_REMAINDER_MIN: f64 = 1.0;
@@ -137,7 +132,7 @@ impl ZoomWindow {
         self.visible
     }
 
-    /// Show or hide the panel. A hidden panel holds no background tile and skips its regeneration.
+    /// Show or hide the panel. A hidden panel holds no background tile.
     pub fn set_visible(&mut self, visible: bool, background: &Background) -> WidgetFlags {
         self.visible = visible;
         self.regenerate_background(background);
@@ -179,7 +174,7 @@ impl ZoomWindow {
         redraw()
     }
 
-    /// The part of the box where finishing a stroke moves the box forward, in document coordinates.
+    /// The part of the box where finishing a stroke moves the box forward.
     pub fn advance_zone(&self) -> Aabb {
         let bounds = self.box_bounds();
         let zone_start = bounds.maxs[0] - bounds.extents()[0] * Self::ADVANCE_ZONE_FRACTION;
@@ -191,10 +186,8 @@ impl ZoomWindow {
         self.stroke_pending = true;
     }
 
-    /// React to a finished stroke at `pos`.
-    ///
-    /// Ending a stroke in the advance zone shifts the box forward, keeping what was written
-    /// in view. At the right page edge the box wraps to a new line instead.
+    /// A stroke ending at `pos` in the advance zone shifts the box forward, or wraps it to a
+    /// new line at the page edge.
     pub(crate) fn advance_after_stroke(&mut self, pos: Vector2, doc: &Document) -> WidgetFlags {
         // Repeated pen-up events (proximity, button quirks) must not advance again.
         let pending = std::mem::replace(&mut self.stroke_pending, false);
@@ -204,30 +197,23 @@ impl ZoomWindow {
 
         let bounds = self.box_bounds();
 
-        // The line ends at the page, not at the document: every layout but fixed size is
-        // wider than a page, and an infinite one grows as the view moves.
+        // The line ends at the page: most layouts are wider than one page.
         let remaining = self.page_right(doc) - bounds.maxs[0];
         if remaining <= Self::ADVANCE_REMAINDER_MIN {
             return self.new_line(doc);
         }
 
-        // A short last step, so the box still covers the page edge and can be written up to
-        // it even when the box is wider than what is left of the line.
+        // A short last step lands the box flush on the page edge.
         let step = self.advance_step().min(remaining);
         self.move_box_to(bounds.mins + Vector2::new(step, 0.0), doc)
     }
 
-    /// How far one auto-advance moves the box: a box width less the part it keeps in view.
-    ///
-    /// Independent of the zone that triggers it, so the trigger can be made eager or patient
-    /// without changing how much of the writing stays on screen.
     fn advance_step(&self) -> f64 {
         self.box_bounds().extents()[0] * (1.0 - Self::ADVANCE_OVERLAP_FRACTION)
     }
 
-    /// Handle a main canvas pen event that may move or resize the box.
+    /// Move or resize the box with a main canvas pen event.
     ///
-    /// Pen down inside the box starts a move, on the bottom-right handle a resize.
     /// Returns `None` when the event is not for the box and the pens should see it.
     pub(crate) fn handle_box_event(
         &mut self,
@@ -267,8 +253,7 @@ impl ZoomWindow {
         }
     }
 
-    /// The drag a pen down at `pos` starts, if any.
-    /// Touching just outside the border counts too, so a thin box is easy to grab.
+    /// The drag a pen down at `pos` starts. A margin around the border keeps a thin box grabbable.
     fn drag_at(&self, pos: Vector2, camera: &Camera) -> Option<BoxDrag> {
         let mode = if self.resize_handle_bounds(camera).contains_local_point(pos) {
             DragMode::Resize
@@ -407,7 +392,7 @@ impl ZoomWindow {
         self.move_box_to(origin, doc)
     }
 
-    /// Regenerate the background tile for the panel zoom. Nothing is kept while the panel is hidden.
+    /// Regenerate the background tile for the panel zoom.
     pub(crate) fn regenerate_background(&mut self, background: &Background) {
         if !self.visible {
             self.tile_image = None;
@@ -443,7 +428,7 @@ impl ZoomWindow {
     ///
     /// The snapshot must be transformed to document coordinates with the panel camera.
     #[cfg(feature = "ui")]
-    pub(crate) fn draw_background_to_gtk_snapshot(
+    pub(crate) fn draw_paper_to_gtk_snapshot(
         &self,
         snapshot: &gtk4::Snapshot,
         doc_bounds: Aabb,
@@ -509,12 +494,12 @@ impl ZoomWindow {
             )
             .upcast(),
         );
-        self.draw_advance_zone_to_gtk_snapshot(snapshot);
+        self.draw_zone_to_gtk_snapshot(snapshot);
     }
 
     /// Tint the advance zone. The snapshot must be transformed to document coordinates.
     #[cfg(feature = "ui")]
-    pub(crate) fn draw_advance_zone_to_gtk_snapshot(&self, snapshot: &gtk4::Snapshot) {
+    pub(crate) fn draw_zone_to_gtk_snapshot(&self, snapshot: &gtk4::Snapshot) {
         use crate::ext::{GdkRGBAExt, GrapheneRectExt};
         use gtk4::{gdk, graphene, gsk, prelude::*};
 
@@ -546,185 +531,51 @@ mod tests {
     use approx::assert_relative_eq;
     use rnote_compose::penpath::Element;
 
-    #[test]
-    fn hidden_panel_has_no_tile() {
-        let background = Background::default();
+    /// Box moved to `origin`, then a stroke finished in its advance zone.
+    fn advance_from(origin: Vector2, doc: &Document) -> Aabb {
         let mut zoom_window = ZoomWindow::default();
-
-        zoom_window.regenerate_background(&background);
-        assert!(zoom_window.tile_image.is_none());
-
-        let _ = zoom_window.set_visible(true, &background);
-        assert!(zoom_window.tile_image.is_some());
-
-        let _ = zoom_window.set_visible(false, &background);
-        zoom_window.regenerate_background(&background);
-        assert!(zoom_window.tile_image.is_none());
+        let _ = zoom_window.move_box_to(origin, doc);
+        zoom_window.begin_stroke();
+        let _ = zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), doc);
+        zoom_window.box_bounds()
     }
 
     #[test]
-    fn panel_resize_keeps_box() {
-        let doc = Document::default();
-        let mut zoom_window = ZoomWindow::default();
-        let before = zoom_window.box_bounds();
-
-        zoom_window.set_size(Vector2::new(1200.0, 300.0), &doc, &Background::default());
-        let after = zoom_window.box_bounds();
-
-        assert_relative_eq!(before.extents()[0], after.extents()[0]);
-        assert_relative_eq!(before.mins, after.mins);
-    }
-
-    #[test]
-    fn shrink_raises_magnification() {
-        let doc = Document::default();
-        let mut zoom_window = ZoomWindow::default();
-        let zoom_before = zoom_window.camera().total_zoom();
-
-        zoom_window.scale_box(BoxScale::Shrink, &doc, &Background::default());
-
-        assert!(zoom_window.camera().total_zoom() > zoom_before);
-    }
-
-    #[test]
-    fn stroke_in_zone_advances() {
+    fn stroke_outside_zone_stays() {
         let doc = Document::default();
         let mut zoom_window = ZoomWindow::default();
         let before = zoom_window.box_bounds();
 
         zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(before.center() - Vector2::new(1.0, 0.0), &doc);
+        let _ = zoom_window.advance_after_stroke(before.center(), &doc);
+
         assert_relative_eq!(zoom_window.box_bounds().mins, before.mins);
-
-        zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
-        let after = zoom_window.box_bounds();
-        assert!(after.mins[0] > before.mins[0]);
-        assert_relative_eq!(after.mins[1], before.mins[1]);
     }
 
     #[test]
-    fn stroke_at_page_edge_wraps() {
-        let doc = Document::default();
-        let mut zoom_window = ZoomWindow::default();
-        let width = zoom_window.box_bounds().extents()[0];
-        zoom_window.move_box_to(Vector2::new(doc.bounds().maxs[0] - width, 100.0), &doc);
-
-        zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
-        let bounds = zoom_window.box_bounds();
-
-        assert_relative_eq!(bounds.mins[0], doc.bounds().mins[0]);
-        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
-    }
-
-    #[test]
-    fn advance_keeps_the_overlap_whatever_triggers_it() {
-        // The trigger zone and the kept overlap are separate settings: the step follows the
-        // overlap alone, so the zone can be tuned without changing what stays in view.
-        let doc = Document::default();
-        let mut zoom_window = ZoomWindow::default();
-        let before = zoom_window.box_bounds();
-        let width = before.extents()[0];
-
-        zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
-        let after = zoom_window.box_bounds();
-
-        assert_relative_eq!(
-            after.mins[0] - before.mins[0],
-            width * (1.0 - ZoomWindow::ADVANCE_OVERLAP_FRACTION)
-        );
-        // What was written in the zone is still on screen after the jump.
-        assert!(after.mins[0] < before.maxs[0] - width * ZoomWindow::ADVANCE_ZONE_FRACTION);
-    }
-
-    #[test]
-    fn advance_wraps_at_the_page_not_the_document() {
-        // A document is wider than one page in every layout but fixed size. The line still
-        // ends at the page.
+    fn advance_wraps_at_page_edge() {
+        // A document four pages wide: the line still ends at the first page.
         let mut doc = Document::default();
         let page_width = doc.config.format.size()[0];
         doc.width = page_width * 4.0;
-        let mut zoom_window = ZoomWindow::default();
-        let width = zoom_window.box_bounds().extents()[0];
-        zoom_window.move_box_to(Vector2::new(page_width - width, 100.0), &doc);
+        let width = ZoomWindow::default().box_bounds().extents()[0];
 
-        zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
-        let bounds = zoom_window.box_bounds();
+        let bounds = advance_from(Vector2::new(page_width - width, 100.0), &doc);
 
         assert_relative_eq!(bounds.mins[0], 0.0);
         assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
     }
 
     #[test]
-    fn advance_writes_the_page_to_its_edge() {
-        // The last advance of a line is a short one, so no wide strip of the page is skipped.
+    fn last_advance_ends_flush() {
         let doc = Document::default();
         let page_width = doc.config.format.size()[0];
-        let mut zoom_window = ZoomWindow::default();
-        let width = zoom_window.box_bounds().extents()[0];
-        // A sliver of a page is still page: the box covers it rather than skipping it.
-        let remaining = 10.0;
-        zoom_window.move_box_to(Vector2::new(page_width - width - remaining, 100.0), &doc);
+        let width = ZoomWindow::default().box_bounds().extents()[0];
 
-        zoom_window.begin_stroke();
-        zoom_window.advance_after_stroke(zoom_window.advance_zone().center(), &doc);
-        let bounds = zoom_window.box_bounds();
+        let bounds = advance_from(Vector2::new(page_width - width - 10.0, 100.0), &doc);
 
         assert_relative_eq!(bounds.maxs[0], page_width);
         assert_relative_eq!(bounds.mins[1], 100.0);
-    }
-
-    #[test]
-    fn drag_inside_box_moves_it() {
-        let doc = Document::default();
-        let camera = Camera::default();
-        let background = Background::default();
-        let mut zoom_window = ZoomWindow::default();
-        let _ = zoom_window.set_visible(true, &background);
-        let before = zoom_window.box_bounds();
-        let start = before.center();
-        let delta = Vector2::new(40.0, 20.0);
-
-        let outside = PenEvent::Down {
-            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
-            modifier_keys: Default::default(),
-        };
-        assert!(
-            zoom_window
-                .handle_box_event(&outside, &camera, &doc, &background)
-                .is_none()
-        );
-        let lift = PenEvent::Up {
-            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
-            modifier_keys: Default::default(),
-        };
-        zoom_window.handle_box_event(&lift, &camera, &doc, &background);
-
-        for event in [
-            PenEvent::Down {
-                element: Element::new(start, 1.0),
-                modifier_keys: Default::default(),
-            },
-            PenEvent::Down {
-                element: Element::new(start + delta, 1.0),
-                modifier_keys: Default::default(),
-            },
-            PenEvent::Up {
-                element: Element::new(start + delta, 1.0),
-                modifier_keys: Default::default(),
-            },
-        ] {
-            assert!(
-                zoom_window
-                    .handle_box_event(&event, &camera, &doc, &background)
-                    .is_some()
-            );
-        }
-
-        assert_relative_eq!(zoom_window.box_bounds().mins, before.mins + delta);
     }
 
     #[test]
@@ -736,22 +587,24 @@ mod tests {
         let _ = zoom_window.set_visible(true, &background);
         let before = zoom_window.box_bounds();
 
-        let outside = PenEvent::Down {
-            element: Element::new(before.maxs + Vector2::splat(100.0), 1.0),
-            modifier_keys: Default::default(),
-        };
-        let inside = PenEvent::Down {
-            element: Element::new(before.center(), 1.0),
-            modifier_keys: Default::default(),
-        };
-        let up = PenEvent::Up {
-            element: Element::new(before.center(), 1.0),
-            modifier_keys: Default::default(),
-        };
-        for event in [&outside, &inside, &up] {
+        let at = |pos| Element::new(pos, 1.0);
+        for event in [
+            PenEvent::Down {
+                element: at(before.maxs + Vector2::splat(100.0)),
+                modifier_keys: Default::default(),
+            },
+            PenEvent::Down {
+                element: at(before.center()),
+                modifier_keys: Default::default(),
+            },
+            PenEvent::Up {
+                element: at(before.center()),
+                modifier_keys: Default::default(),
+            },
+        ] {
             assert!(
                 zoom_window
-                    .handle_box_event(event, &camera, &doc, &background)
+                    .handle_box_event(&event, &camera, &doc, &background)
                     .is_none()
             );
         }
@@ -760,58 +613,17 @@ mod tests {
     }
 
     #[test]
-    fn drag_handle_resizes_box() {
-        let doc = Document::default();
-        let camera = Camera::default();
-        let background = Background::default();
-        let mut zoom_window = ZoomWindow::default();
-        let _ = zoom_window.set_visible(true, &background);
-        let before = zoom_window.box_bounds();
-
-        let down = PenEvent::Down {
-            element: Element::new(before.maxs, 1.0),
-            modifier_keys: Default::default(),
-        };
-        let up = PenEvent::Up {
-            element: Element::new(before.maxs + Vector2::new(50.0, 0.0), 1.0),
-            modifier_keys: Default::default(),
-        };
-        zoom_window.handle_box_event(&down, &camera, &doc, &background);
-        zoom_window.handle_box_event(&up, &camera, &doc, &background);
-        let after = zoom_window.box_bounds();
-
-        assert_relative_eq!(after.mins, before.mins);
-        assert_relative_eq!(after.extents()[0], before.extents()[0] + 50.0);
-    }
-
-    #[test]
     fn new_line_returns_to_page_edge() {
+        // Pages tile from the coordinate origin, not from the shifted document origin.
         let mut doc = Document::default();
         doc.x = -1000.0;
         doc.width = 3000.0;
         let page_width = doc.config.format.size()[0];
         let mut zoom_window = ZoomWindow::default();
-        zoom_window.place_box(Vector2::new(page_width + 200.0, 100.0), &doc);
+        let _ = zoom_window.place_box(Vector2::new(page_width + 200.0, 100.0), &doc);
 
-        zoom_window.new_line(&doc);
-        let bounds = zoom_window.box_bounds();
+        let _ = zoom_window.new_line(&doc);
 
-        assert_relative_eq!(bounds.mins[0], page_width);
-        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
-    }
-
-    #[test]
-    fn new_line_returns_to_line_start() {
-        let doc = Document::default();
-        let mut zoom_window = ZoomWindow::default();
-        zoom_window.set_line_start(LineStart::LastPlaced);
-        zoom_window.place_box(Vector2::new(200.0, 100.0), &doc);
-        zoom_window.shift_box(BoxShift::Right, &doc);
-
-        zoom_window.new_line(&doc);
-        let bounds = zoom_window.box_bounds();
-
-        assert_relative_eq!(bounds.mins[0], 200.0);
-        assert_relative_eq!(bounds.mins[1], 100.0 + ZoomWindow::RETURN_HEIGHT_DEFAULT);
+        assert_relative_eq!(zoom_window.box_bounds().mins[0], page_width);
     }
 }

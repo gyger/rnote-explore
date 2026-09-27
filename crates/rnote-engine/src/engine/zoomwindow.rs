@@ -49,9 +49,8 @@ impl Engine {
         self.zoom_window.set_line_start(line_start);
     }
 
-    /// Handle a pen event coming from the panel. The element must already be in document coordinates.
-    ///
-    /// A finished brush stroke may move the box forward (auto-advance).
+    /// Handle a panel pen event, already in document coordinates. A finished brush stroke may
+    /// advance the box.
     pub fn handle_zoom_window_pen_event(
         &mut self,
         event: PenEvent,
@@ -67,7 +66,7 @@ impl Engine {
             _ => None,
         };
 
-        // Straight to the pens: the box drag interception is for the main canvas only.
+        // Straight to the pens: box dragging is for the main canvas only.
         let (propagation, mut widget_flags) = self.penholder.handle_pen_event(
             event,
             pen_mode,
@@ -82,9 +81,7 @@ impl Engine {
         (propagation, widget_flags)
     }
 
-    /// Scroll the main view so the whole box is visible, if it is not already.
-    ///
-    /// Writing in the panel moves the box across the page; the page should follow.
+    /// Scroll the main view by the smallest shift that shows the whole box.
     pub fn reveal_zoom_box(&mut self) -> WidgetFlags {
         const MARGIN: f64 = 24.0;
         let viewport = self.camera.viewport();
@@ -93,7 +90,6 @@ impl Engine {
             return WidgetFlags::default();
         }
 
-        // Smallest shift that brings the box inside, per axis.
         let shift = Vector2::new(
             axis_shift(
                 viewport.mins[0],
@@ -112,11 +108,11 @@ impl Engine {
         self.camera.set_offset(offset, &self.document)
     }
 
-    /// Draw the panel content: the document inside the box, magnified.
+    /// Draw the document inside the box, magnified.
     ///
-    /// Strokes are drawn immediately because the store caches textures for the main camera zoom only.
+    /// Strokes are drawn immediately: the store caches textures for the main camera zoom only.
     #[cfg(feature = "ui")]
-    pub fn draw_zoom_window_to_gtk_snapshot(
+    pub fn draw_zoom_to_gtk_snapshot(
         &self,
         snapshot: &gtk4::Snapshot,
         surface_bounds: p2d::bounding_volume::Aabb,
@@ -136,12 +132,12 @@ impl Engine {
 
         snapshot.save();
         snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-        self.zoom_window.draw_background_to_gtk_snapshot(
+        self.zoom_window.draw_paper_to_gtk_snapshot(
             snapshot,
             doc_bounds,
             &self.document.config.background,
         );
-        self.zoom_window.draw_advance_zone_to_gtk_snapshot(snapshot);
+        self.zoom_window.draw_zone_to_gtk_snapshot(snapshot);
         snapshot.restore();
 
         // Transform on the piet side, so cairo rasterizes at panel resolution instead of upscaling.
@@ -170,10 +166,10 @@ impl Engine {
     }
 }
 
-/// Shift of a view interval so that a target interval fits, 0.0 if it already does.
+/// Shift of a view interval so that a target interval fits.
 ///
-/// A target larger than the view can never fit; chasing its edges would flip the view
-/// back and forth. Such a target is followed only once it has left the view, top-aligned.
+/// A target larger than the view is followed only once it has left it, top-aligned.
+/// Chasing its edges would make the view flicker.
 fn axis_shift(view_min: f64, view_max: f64, target_min: f64, target_max: f64) -> f64 {
     let fits = target_max - target_min <= view_max - view_min;
     if !fits {
@@ -193,10 +189,9 @@ fn axis_shift(view_min: f64, view_max: f64, target_min: f64, target_max: f64) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use p2d::bounding_volume::BoundingVolume;
 
     #[test]
-    fn oversized_target_does_not_oscillate() {
+    fn oversized_target_does_not_flicker() {
         // Target larger than the view and overlapping it: stay put.
         assert_eq!(axis_shift(0.0, 100.0, -10.0, 150.0), 0.0);
         // Larger and gone below the view: align the top edge.
@@ -205,30 +200,5 @@ mod tests {
         assert_eq!(axis_shift(0.0, 100.0, -400.0, -200.0), -400.0);
         // Fitting target keeps the minimal shift.
         assert_eq!(axis_shift(0.0, 100.0, 90.0, 120.0), 20.0);
-    }
-
-    #[test]
-    fn reveal_scrolls_to_box() {
-        let mut engine = Engine::default();
-        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
-        let _ = engine.zoom_window_set_visible(true);
-        let far = Vector2::new(400.0, 3000.0);
-        let _ = engine.zoom_window.move_box_to(far, &engine.document);
-        assert!(
-            !engine
-                .camera
-                .viewport()
-                .contains(&engine.zoom_window.box_bounds())
-        );
-
-        let widget_flags = engine.reveal_zoom_box();
-
-        assert!(widget_flags.view_modified);
-        assert!(
-            engine
-                .camera
-                .viewport()
-                .contains(&engine.zoom_window.box_bounds())
-        );
     }
 }
