@@ -6,9 +6,16 @@ name: Release Windows
   release:
     types: [published]
   workflow_dispatch:
+  # Overlay: the fork's unofficial installer, see OVERLAY.md.
+  push:
+    tags:
+      - overlay-build
 
 jobs:
   build:
+    # Overlay: official releases only upstream, only the overlay build on a fork.
+    if: >-
+      (github.repository == 'flxzt/rnote') != (github.ref == 'refs/tags/overlay-build')
     runs-on: windows-2025
     permissions:
       # needed for uploading release artifact
@@ -67,6 +74,11 @@ jobs:
       - name: Setup
         run: just ci=true setup-win-installer '${{ steps.set_installer_name.outputs.name }}'
 
+      # Overlay: the About dialog reads e.g. 0.15.0+overlay-29ea24a.
+      - name: Mark overlay version
+        if: github.ref == 'refs/tags/overlay-build'
+        run: just configure -Dversion-extra=+overlay-$(git rev-parse --short=7 HEAD)
+
       - name: Build
         run: just ci=true build
 
@@ -86,3 +98,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ github.ref_name }} _mesonbuild/${{ steps.set_installer_name.outputs.name }}.exe
+
+      # Overlay: one unofficial prerelease, replaced on every run.
+      - name: Publish overlay installer
+        if: github.ref == 'refs/tags/overlay-build'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALLER: _mesonbuild/${{ steps.set_installer_name.outputs.name }}.exe
+        run: |
+          notes="Unofficial build of ${GITHUB_REPOSITORY}: Rnote with local patches, commit ${GITHUB_SHA}.
+          Not an Rnote release. Official releases: https://github.com/flxzt/rnote/releases"
+          if gh release view overlay-build >/dev/null 2>&1; then
+            gh release edit overlay-build --notes "${notes}"
+          else
+            gh release create overlay-build --verify-tag --prerelease \
+              --title "Unofficial overlay build" --notes "${notes}"
+          fi
+          gh release upload overlay-build "${INSTALLER}" --clobber
