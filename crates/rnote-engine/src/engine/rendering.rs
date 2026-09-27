@@ -130,6 +130,9 @@ impl Engine {
         let image_scale = self.camera.image_scale();
         let scale_factor = self.camera.scale_factor();
 
+        self.zoom_window
+            .regenerate_background(&self.document.config.background);
+
         match self.document.config.background.gen_tile_image(image_scale) {
             Ok(image) => {
                 self.background_tile_image = Some(image);
@@ -212,6 +215,8 @@ impl Engine {
         snapshot.pop();
 
         self.draw_origin_indicator_to_gtk_snapshot(snapshot)?;
+        self.zoom_window
+            .draw_box_to_gtk_snapshot(snapshot, &self.camera);
 
         snapshot.restore();
         /*
