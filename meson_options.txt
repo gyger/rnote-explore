@@ -35,3 +35,16 @@ option(
   value: 'C:\\msys64\\mingw64',
   description: 'Only relevant for builds on Windows: the path of the installed msys/mingw64 environment.',
 )
+option(
+  'version-extra',
+  type: 'string',
+  value: '',
+  description: 'Appended to the displayed version, e.g. "+overlay-29ea24a" to mark a build of the downstream overlay.',
+)
+option(
+  'win-installer-identity',
+  type: 'combo',
+  choices: ['official', 'overlay'],
+  value: 'official',
+  description: 'Only relevant for the Windows installer: "overlay" installs beside the official Rnote, under its own name and AppId.',
+)
