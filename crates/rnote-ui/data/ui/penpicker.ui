@@ -80,6 +80,21 @@
       </object>
     </child>
     <child>
+      <object class="GtkSeparator" id="presentation_separator">
+        <property name="visible">false</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkToggleButton" id="presentation_toggle">
+        <property name="visible">false</property>
+        <property name="icon_name">presentation-symbolic</property>
+        <property name="tooltip_text" translatable="yes">Presentation Controls</property>
+        <style>
+          <class name="flat" />
+        </style>
+      </object>
+    </child>
+    <child>
       <object class="GtkSeparator"></object>
     </child>
     <child>
