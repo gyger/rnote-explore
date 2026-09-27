@@ -14,6 +14,7 @@ force=
 [ "${1:-}" = -f ] && { force=1; shift; }
 src=${1:?usage: overlay-adopt.sh [-f] <branch on origin>}
 cd "$(git rev-parse --show-toplevel)"
+git diff --quiet HEAD -- || { echo "working tree has uncommitted changes" >&2; exit 1; }
 
 git fetch -q origin
 branch=$(git rev-parse -q --verify "refs/remotes/origin/$src^{commit}") ||
@@ -39,8 +40,6 @@ if local=$(git rev-parse -q --verify refs/stacks/overlay); then
     fi
     git update-ref refs/stacks-backup/overlay "$local"
 fi
-
-git diff --quiet HEAD -- || { echo "working tree has uncommitted changes" >&2; exit 1; }
 
 if git rev-parse -q --verify refs/heads/overlay >/dev/null; then
     git switch -q overlay
