@@ -6,6 +6,7 @@ mod input;
 // Re-exports
 pub(crate) use canvaslayout::RnCanvasLayout;
 pub(crate) use input::reject_pointer_input;
+pub(crate) use input::{InputSurface, handle_pointer_controller_event};
 
 // Imports
 use crate::boxed::WidgetFlagsBoxed;
@@ -524,6 +525,7 @@ mod imp {
                             event,
                             pen_state.get(),
                             stylus_active.get(),
+                            InputSurface::Canvas,
                         );
                     pen_state.set(new_state);
                     stylus_active.set(new_stylus_active);
