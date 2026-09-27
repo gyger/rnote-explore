@@ -1,14 +1,15 @@
 {
   "version": 5,
-  "prev": "31a5e0db9d0747ed6484bf22ca6b873727d9279b",
-  "head": "e26ef01ea97a26c37300d092646f6af82051fbc2",
+  "prev": "88902b389c0555fae4d8db78abc2e5eeceb850f9",
+  "head": "0764b795e186f3c402e5d043eadf7cd49f20222e",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "zoom-window",
     "screen-ratio-formats",
-    "dual-screen"
+    "dual-screen",
+    "refresh-temp"
   ],
   "unapplied": [],
   "hidden": [],
@@ -18,6 +19,9 @@
     },
     "overlay-workflow": {
       "oid": "e567fc8f0abe06d635b18eabe324050ab84b2e18"
+    },
+    "refresh-temp": {
+      "oid": "0764b795e186f3c402e5d043eadf7cd49f20222e"
     },
     "screen-ratio-formats": {
       "oid": "8576adfba87a6b26f1937da22de0dd5e0ec585cd"
