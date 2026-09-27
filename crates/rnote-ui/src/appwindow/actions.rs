@@ -1,6 +1,6 @@
 // Imports
 use crate::RnApp;
-use crate::{RnAppWindow, RnCanvas, config, dialogs};
+use crate::{RnAppWindow, RnCanvas, RnPresentationWindow, config, dialogs};
 use gettextrs::gettext;
 use gtk4::gio::InputStream;
 use gtk4::graphene;
@@ -180,6 +180,24 @@ impl RnAppWindow {
         self.add_action(&action_focus_mode);
         let action_zoom_window = gio::PropertyAction::new("zoom-window", self, "zoom-window");
         self.add_action(&action_zoom_window);
+        let action_presentation = gio::PropertyAction::new("presentation", self, "presentation");
+        self.add_action(&action_presentation);
+        let action_presentation_flip_screen =
+            gio::SimpleAction::new("presentation-flip-screen", None);
+        action_presentation_flip_screen.set_enabled(false);
+        self.add_action(&action_presentation_flip_screen);
+        let action_presentation_lock_page =
+            gio::SimpleAction::new_stateful("presentation-lock-page", None, &false.to_variant());
+        action_presentation_lock_page.set_enabled(false);
+        self.add_action(&action_presentation_lock_page);
+        let action_presentation_freeze =
+            gio::SimpleAction::new_stateful("presentation-freeze", None, &false.to_variant());
+        action_presentation_freeze.set_enabled(false);
+        self.add_action(&action_presentation_freeze);
+        let action_presentation_blank =
+            gio::SimpleAction::new_stateful("presentation-blank", None, &false.to_variant());
+        action_presentation_blank.set_enabled(false);
+        self.add_action(&action_presentation_blank);
         let action_zoom_window_box_left = gio::SimpleAction::new("zoom-window-box-left", None);
         self.add_action(&action_zoom_window_box_left);
         let action_zoom_window_box_right = gio::SimpleAction::new("zoom-window-box-right", None);
@@ -528,6 +546,46 @@ impl RnAppWindow {
                     };
                     let widget_flags = canvas.engine_mut().zoom_window_scale_box(scale);
                     appwindow.handle_widget_flags(widget_flags, &canvas);
+                }
+            ));
+        }
+
+        action_presentation_flip_screen.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                appwindow.flip_presentation_screen();
+            }
+        ));
+
+        // Audience window toggles
+        let presentation_toggles: [(_, fn(&RnPresentationWindow, bool)); 3] = [
+            (
+                &action_presentation_lock_page,
+                RnPresentationWindow::set_page_locked,
+            ),
+            (
+                &action_presentation_freeze,
+                RnPresentationWindow::set_frozen,
+            ),
+            (
+                &action_presentation_blank,
+                RnPresentationWindow::set_blanked,
+            ),
+        ];
+        for (action, apply) in presentation_toggles {
+            action.connect_change_state(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |action, state| {
+                    let Some(active) = state.and_then(|state| state.get::<bool>()) else {
+                        return;
+                    };
+                    action.set_state(&active.to_variant());
+
+                    if let Some(window) = appwindow.presentation_window() {
+                        apply(&window, active);
+                    }
                 }
             ));
         }
@@ -1245,6 +1303,11 @@ impl RnAppWindow {
         app.set_accels_for_action("win.keyboard-shortcuts", &["<Ctrl>question"]);
         app.set_accels_for_action("win.toggle-overview", &["<Ctrl><Shift>o"]);
         app.set_accels_for_action("win.zoom-window", &["F7"]);
+        app.set_accels_for_action("win.presentation", &["F8"]);
+        app.set_accels_for_action("win.presentation-flip-screen", &["<Shift>F8"]);
+        app.set_accels_for_action("win.presentation-lock-page", &["<Ctrl>F8"]);
+        app.set_accels_for_action("win.presentation-freeze", &["<Alt>F8"]);
+        app.set_accels_for_action("win.presentation-blank", &["<Ctrl><Shift>F8"]);
         app.set_accels_for_action("win.open-canvasmenu", &["F9"]);
         app.set_accels_for_action("win.open-appmenu", &["F10"]);
         app.set_accels_for_action("win.open-doc", &["<Ctrl>o"]);
