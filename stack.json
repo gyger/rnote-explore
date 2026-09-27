@@ -1,9 +1,15 @@
 {
   "version": 5,
-  "prev": null,
-  "head": "bbc5354502ba2fc83eec2670b535348825e679a6",
-  "applied": [],
+  "prev": "5e62a7e27387dcd523362e0d07f6ac5252cb23c1",
+  "head": "80e88fb4cbe46d2c87360940e7433e51a5733cf2",
+  "applied": [
+    "overlay-workflow"
+  ],
   "unapplied": [],
   "hidden": [],
-  "patches": {}
+  "patches": {
+    "overlay-workflow": {
+      "oid": "80e88fb4cbe46d2c87360940e7433e51a5733cf2"
+    }
+  }
 }
