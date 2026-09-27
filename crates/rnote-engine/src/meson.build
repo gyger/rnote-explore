@@ -17,6 +17,7 @@ rnote_engine_sources = files(
     'engine/snapshot.rs',
     'engine/strokecontent.rs',
     'engine/visual_debug.rs',
+    'engine/zoomwindow.rs',
     'ext.rs',
     'fileformats/mod.rs',
     'fileformats/rnoteformat/maj0min5patch8.rs',
@@ -74,4 +75,5 @@ rnote_engine_sources = files(
     'tasks.rs',
     'utils.rs',
     'widgetflags.rs',
+    'zoomwindow.rs',
 )
