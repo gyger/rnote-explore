@@ -1,12 +1,11 @@
 {
   "version": 5,
-  "prev": "c3e60c6e237574b7db0d46ae9a65fc5e8f221b4a",
-  "head": "6cd01e6ce2c478befea6a6202b1d55e44189c054",
+  "prev": "b2ec8056cc4e7d08dcb5427d2eb4805468b8fe78",
+  "head": "47d4d3ee2e33405f74f571b26208db47d265d435",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
-    "windows-defender-warmup",
-    "refresh-temp"
+    "windows-defender-warmup"
   ],
   "unapplied": [
     "zoom-window",
@@ -21,14 +20,11 @@
     "overlay-workflow": {
       "oid": "6dafb5ed4250cd60937b2a1970de3b01b33cbc29"
     },
-    "refresh-temp": {
-      "oid": "6cd01e6ce2c478befea6a6202b1d55e44189c054"
-    },
     "screen-ratio-formats": {
       "oid": "8517f6b7ec7e19a759b60aaba57e3d25fa3484d7"
     },
     "windows-defender-warmup": {
-      "oid": "8c20883b1238dcf95d7123f643561ec4c373ddf7"
+      "oid": "47d4d3ee2e33405f74f571b26208db47d265d435"
     },
     "windows-installer-ci": {
       "oid": "60532f0d91379a3c2d7eb40758cfbe353aea6285"
