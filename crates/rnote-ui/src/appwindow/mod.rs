@@ -283,6 +283,7 @@ impl RnAppWindow {
 
         if widget_flags.redraw {
             canvas.queue_draw();
+            self.overlays().zoomwindow().queue_redraw();
         }
         if widget_flags.resize {
             canvas.queue_resize();
