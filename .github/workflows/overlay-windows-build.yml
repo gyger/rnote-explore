@@ -2,15 +2,11 @@
 
 name: Overlay Windows Build
 
-# Windows installer for the commit tagged `build` (move the tag and push
-# it: `git overlay-build`). Pushes alone never build.
+# Windows installer for the commit tagged `build` (`git overlay-build`).
+# Build steps follow release-windows.yml; keep them in sync on rebase.
 #
-#   git overlay-build
-#     -> release `build`, asset rnote-win-installer-overlay-x86_64.exe
-#     -> About dialog: 0.15.0+overlay-29ea24a
-#
-# Each run replaces the previous installer. The release is public, so the
-# asset URL can be handed to students without a GitHub account.
+#   -> release `build`, asset rnote-win-installer-overlay-x86_64.exe
+#   -> About dialog: 0.15.0+overlay-29ea24a
 
 "on":
   push:
@@ -53,11 +49,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Full history: the release notes list the patches above upstream.
           fetch-depth: 0
 
-      # The version names the commit; the notes list the patches in it, i.e.
-      # every commit between upstream main and the tagged commit.
+      # Notes list the commits between upstream main and the tagged commit.
       - name: Set version and release notes
         id: build_identity
         shell: bash
@@ -107,8 +101,7 @@ jobs:
       - name: Build installer
         run: just ci=true build-win-installer
 
-      # Same release, same asset name every time, so the URL never changes:
-      #   /releases/download/build/rnote-win-installer-overlay-x86_64.exe
+      # Fixed release and asset name, so the download URL never changes.
       - name: Publish installer on the build release
         shell: bash
         env:
