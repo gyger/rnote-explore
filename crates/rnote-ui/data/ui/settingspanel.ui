@@ -170,6 +170,9 @@ gets disabled.</property>
                               <item translatable="yes">A2</item>
                               <item translatable="yes">US letter</item>
                               <item translatable="yes">US legal</item>
+                              <item translatable="yes">Screen 16:9</item>
+                              <item translatable="yes">Screen 16:10</item>
+                              <item translatable="yes">Screen 4:3</item>
                               <item translatable="yes">Custom</item>
                             </items>
                           </object>
