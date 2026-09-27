@@ -1,16 +1,20 @@
 {
   "version": 5,
-  "prev": "c80d533fcbe15b25437ae0fdf655990286376372",
-  "head": "01a8648877e7314c33886c09dc64ea77edd8156e",
+  "prev": "b341b1481d019ec7a70a4d23f18bb5600d9fbaef",
+  "head": "91fc00f0a99f70886016b8dc539b026a99ab8117",
   "applied": [
     "overlay-workflow",
-    "windows-installer-ci"
+    "windows-installer-ci",
+    "windows-defender-warmup"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
     "overlay-workflow": {
       "oid": "909a3a52aaff1813b41be01bd58d7701827d2cea"
+    },
+    "windows-defender-warmup": {
+      "oid": "91fc00f0a99f70886016b8dc539b026a99ab8117"
     },
     "windows-installer-ci": {
       "oid": "01a8648877e7314c33886c09dc64ea77edd8156e"
