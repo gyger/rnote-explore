@@ -1,18 +1,22 @@
 {
   "version": 5,
-  "prev": "243cce1c3951e1fb7eac2d617a7c8e156d002c16",
-  "head": "57345f1a3585c062ee901b1c48bcdf80682b33d8",
+  "prev": "47c581dff6de8130bfd209e4e8a1e76c628e8aa6",
+  "head": "889d654705608cb8a5fb14afdce56d0e5a904e83",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
-    "zoom-window"
+    "zoom-window",
+    "refresh-temp"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
     "overlay-workflow": {
       "oid": "909a3a52aaff1813b41be01bd58d7701827d2cea"
+    },
+    "refresh-temp": {
+      "oid": "889d654705608cb8a5fb14afdce56d0e5a904e83"
     },
     "windows-defender-warmup": {
       "oid": "9efd88880a924547a80c599c3ba695e2a3b44bda"
