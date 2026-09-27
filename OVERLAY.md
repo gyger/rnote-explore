@@ -180,7 +180,8 @@ handed out once:
 
 https://github.com/gyger/rnote-explore/releases/download/overlay-build/rnote-win-installer-overlay-build-x86_64.exe
 
-The installed app reports e.g. `0.15.0+overlay-29ea24a` in its About
+It installs as "Rnote (overlay)" with its own AppId, beside an
+official Rnote, and reports e.g. `0.15.0+overlay-29ea24a` in its About
 dialog. On the fork, upstream's release and dist workflows never run, so
 no installer looks like an official Rnote release.
 
