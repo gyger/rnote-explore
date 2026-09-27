@@ -1,7 +1,7 @@
 Bottom: ea29af924094ce74e2fed3e73189e2110ae992a8
-Top:    b1331f2fc8798321bc3f0388207a9ea3be353dce
+Top:    4304c031698ff6a93a751667bc0f27035cf2cb9f
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-09-27 11:47:27 +0200
+Date:   2026-09-27 11:47:28 +0200
 
 Build the overlay Windows installer from the build tag
 
