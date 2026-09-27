@@ -1,9 +1,10 @@
 {
   "version": 5,
-  "prev": "b979e5c93cefc47e935fc77851feb1f77aee485b",
-  "head": "a836ea86e85338f0496b1659f55194fb28457b3c",
+  "prev": "3f3ba768a54294d4d7628ac547eb2956a0803f31",
+  "head": "6dbcc2008f7275e3d9f4559eb9434857762726ff",
   "applied": [
-    "overlay-workflow"
+    "overlay-workflow",
+    "windows-msys2-packages"
   ],
   "unapplied": [
     "windows-installer-ci",
@@ -28,6 +29,9 @@
     },
     "windows-installer-ci": {
       "oid": "107e6fd8f109497525a2c275bc30dad8996c09d9"
+    },
+    "windows-msys2-packages": {
+      "oid": "6dbcc2008f7275e3d9f4559eb9434857762726ff"
     },
     "zoom-window": {
       "oid": "acfcb2fb5aaaf49db077aafe875e42606774e7a3"

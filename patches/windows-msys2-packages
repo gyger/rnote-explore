@@ -1,0 +1,16 @@
+Bottom: bd6d8bfd670b4ec94e358ac766e83912a18c0223
+Top:    bd6d8bfd670b4ec94e358ac766e83912a18c0223
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-09-27 12:34:41 +0200
+
+Drop MSYS2 packages removed from mingw64
+
+Purpose: keep the Windows installer build working. MSYS2 removed
+mingw-w64-x86_64-diffutils and mingw-w64-x86_64-desktop-file-utils,
+so 'just prerequisites-win' fails before anything is built.
+
+Approach: drop both from the pacman list. Nothing needs diffutils;
+meson looks for desktop-file-validate with required: false.
+
+Constraints: temporary. Upstream is moving the Windows build to
+ucrt64 (branch flxzt/win-ucrt64); delete this patch once that lands.
