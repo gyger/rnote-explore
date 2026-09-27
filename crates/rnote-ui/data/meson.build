@@ -371,6 +371,7 @@ rnote_ui_gresources_ui_files = files(
     'ui/strokewidthpicker.ui',
     'ui/unitentry.ui',
     'ui/workspacebrowser.ui',
+    'ui/zoomwindow.ui',
     'ui/workspacesbar/workspacerow.ui',
     'ui/workspacesbar/workspacesbar.ui',
 )
