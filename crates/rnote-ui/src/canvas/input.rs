@@ -1,7 +1,9 @@
 // Imports
 use super::RnCanvas;
 use gtk4::{Native, gdk, glib, graphene, prelude::*};
+use p2d::glamx::DAffine2;
 use p2d::math::Vector2;
+use rnote_compose::eventresult::EventPropagation;
 use rnote_compose::penevent::{KeyboardKey, ModifierKey, PenEvent, PenState, ShortcutKey};
 use rnote_compose::penpath::Element;
 use rnote_engine::WidgetFlags;
@@ -12,6 +14,15 @@ use rnote_engine::pens::penholder::BacklogPolicy;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use tracing::trace;
+
+/// Where a pointer event comes from. Both views write into the same engine.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum InputSurface<'a> {
+    /// The main canvas.
+    Canvas,
+    /// The zoom window panel widget.
+    ZoomWindow(&'a gtk4::Widget),
+}
 
 /// Handles a pointer controller event.
 ///
@@ -25,6 +36,7 @@ pub(crate) fn handle_pointer_controller_event(
     event: &gdk::Event,
     mut pen_state: PenState,
     mut stylus_active: bool,
+    surface: InputSurface,
 ) -> (glib::Propagation, PenState, bool) {
     let now = Instant::now();
     let mut widget_flags = WidgetFlags::default();
@@ -180,7 +192,8 @@ pub(crate) fn handle_pointer_controller_event(
     };
 
     if handle_pen_event {
-        let Some(elements) = retrieve_pointer_elements(canvas, now, event, backlog_policy) else {
+        let Some(elements) = retrieve_pointer_elements(canvas, surface, now, event, backlog_policy)
+        else {
             return (glib::Propagation::Proceed, pen_state, stylus_active);
         };
         let modifier_keys = retrieve_modifier_keys(event.modifier_state());
@@ -205,7 +218,9 @@ pub(crate) fn handle_pointer_controller_event(
                 PenState::Up => {
                     canvas.enable_drawing_cursor(false);
 
-                    let (ep, wf) = canvas.engine_mut().handle_pen_event(
+                    let (ep, wf) = dispatch_pen_event(
+                        canvas,
+                        surface,
                         PenEvent::Up {
                             element,
                             modifier_keys: modifier_keys.clone(),
@@ -219,7 +234,9 @@ pub(crate) fn handle_pointer_controller_event(
                 PenState::Proximity => {
                     canvas.enable_drawing_cursor(false);
 
-                    let (ep, wf) = canvas.engine_mut().handle_pen_event(
+                    let (ep, wf) = dispatch_pen_event(
+                        canvas,
+                        surface,
                         PenEvent::Proximity {
                             element,
                             modifier_keys: modifier_keys.clone(),
@@ -234,7 +251,9 @@ pub(crate) fn handle_pointer_controller_event(
                     canvas.grab_focus();
                     canvas.enable_drawing_cursor(true);
 
-                    let (ep, wf) = canvas.engine_mut().handle_pen_event(
+                    let (ep, wf) = dispatch_pen_event(
+                        canvas,
+                        surface,
                         PenEvent::Down {
                             element,
                             modifier_keys: modifier_keys.clone(),
@@ -349,6 +368,7 @@ fn event_is_stylus(event: &gdk::Event) -> bool {
 
 fn retrieve_pointer_elements(
     canvas: &RnCanvas,
+    surface: InputSurface,
     now: Instant,
     event: &gdk::Event,
     backlog_policy: BacklogPolicy,
@@ -363,23 +383,17 @@ fn retrieve_pointer_elements(
 
     let mut elements = Vec::with_capacity(1);
 
+    let (target, transform_inv) = surface_target(canvas, surface);
     // Transforms the pos given in surface coordinate space to the canvas document coordinate space
     let transform_pos = |pos: Vector2| -> Vector2 {
         event_native
             .compute_point(
-                canvas,
+                target,
                 &graphene::Point::from_p2d_vec(
                     pos - Vector2::new(surface_trans_x, surface_trans_y),
                 ),
             )
-            .map(|p| {
-                canvas
-                    .engine_ref()
-                    .camera
-                    .transform()
-                    .inverse()
-                    .transform_point2(p.to_p2d_vec())
-            })
+            .map(|p| transform_inv.transform_point2(p.to_p2d_vec()))
             .unwrap()
     };
 
@@ -530,5 +544,43 @@ pub(crate) fn retrieve_keyboard_key(gdk_key: gdk::Key) -> KeyboardKey {
             gdk::Key::KP_End => KeyboardKey::End,
             _ => KeyboardKey::Unsupported,
         }
+    }
+}
+
+/// The widget the event position is relative to and the transform into document coordinates.
+fn surface_target<'a>(
+    canvas: &'a RnCanvas,
+    surface: InputSurface<'a>,
+) -> (&'a gtk4::Widget, DAffine2) {
+    match surface {
+        InputSurface::Canvas => (
+            canvas.upcast_ref(),
+            canvas.engine_ref().camera.transform().inverse(),
+        ),
+        InputSurface::ZoomWindow(widget) => (
+            widget,
+            canvas
+                .engine_ref()
+                .zoom_window
+                .camera()
+                .transform()
+                .inverse(),
+        ),
+    }
+}
+
+/// Route a pen event to the engine entry point matching its surface.
+fn dispatch_pen_event(
+    canvas: &RnCanvas,
+    surface: InputSurface,
+    event: PenEvent,
+    pen_mode: Option<PenMode>,
+    now: Instant,
+) -> (EventPropagation, WidgetFlags) {
+    match surface {
+        InputSurface::Canvas => canvas.engine_mut().handle_pen_event(event, pen_mode, now),
+        InputSurface::ZoomWindow(_) => canvas
+            .engine_mut()
+            .handle_zoom_window_pen_event(event, pen_mode, now),
     }
 }
