@@ -1,0 +1,22 @@
+Bottom: 68e7a29ccb086c8aebcc53df2da3bd386e3cd4bf
+Top:    68e7a29ccb086c8aebcc53df2da3bd386e3cd4bf
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-09-27 10:53:13 +0200
+
+Build the overlay Windows installer from the build tag
+
+Purpose: a Windows installer of the overlay that students and
+colleagues can download from one fixed public URL, and that says in
+its About dialog which build it is.
+
+Approach: .github/workflows/overlay-windows-build.yml runs only when
+the build tag is pushed (git overlay-build), so a build is a
+deliberate act. It reuses upstream's just/MSYS2 installer recipes and
+uploads the result under a fixed name to a public prerelease on the
+build tag, replacing the previous one. A 'version-extra' meson option
+is appended to the version suffix; CI sets it to +overlay-<sha>, and
+the release notes list the patch subjects above upstream main.
+
+Constraints: 'just configure' interpolates its arguments unquoted, so
+version-extra must stay free of spaces and parentheses. The option
+defaults to empty, leaving stock builds unchanged.

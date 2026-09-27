@@ -1,15 +1,19 @@
 {
   "version": 5,
-  "prev": "587875cb0c91698d94083ca6b33e8efda015f95b",
-  "head": "909a3a52aaff1813b41be01bd58d7701827d2cea",
+  "prev": "1975df739a4775c8cec58ac65521a170d772c11a",
+  "head": "2b0da496dc57332b17cc64588ba454b3cdab4cd3",
   "applied": [
-    "overlay-workflow"
+    "overlay-workflow",
+    "windows-installer-ci"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
     "overlay-workflow": {
       "oid": "909a3a52aaff1813b41be01bd58d7701827d2cea"
+    },
+    "windows-installer-ci": {
+      "oid": "2b0da496dc57332b17cc64588ba454b3cdab4cd3"
     }
   }
 }
