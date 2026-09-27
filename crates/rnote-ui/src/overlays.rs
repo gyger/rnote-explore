@@ -1,5 +1,6 @@
 // Imports
 use crate::RnPensSideBar;
+use crate::RnZoomWindow;
 use crate::canvaswrapper::RnCanvasWrapper;
 use crate::{RnAppWindow, RnColorPicker, RnPenPicker, dialogs};
 use core::time::Duration;
@@ -39,6 +40,8 @@ mod imp {
         pub(crate) sidebar_scroller: TemplateChild<ScrolledWindow>,
         #[template_child]
         pub(crate) penssidebar: TemplateChild<RnPensSideBar>,
+        #[template_child]
+        pub(crate) zoomwindow: TemplateChild<RnZoomWindow>,
     }
 
     #[glib::object_subclass]
@@ -134,6 +137,10 @@ impl RnOverlays {
 
     pub(crate) fn penssidebar(&self) -> RnPensSideBar {
         self.imp().penssidebar.get()
+    }
+
+    pub(crate) fn zoomwindow(&self) -> RnZoomWindow {
+        self.imp().zoomwindow.get()
     }
 
     pub(crate) fn init(&self, appwindow: &RnAppWindow) {
@@ -246,6 +253,10 @@ impl RnOverlays {
                 let widget_flags = active_canvaswrapper.canvas().engine_mut().set_active(true);
                 appwindow.handle_widget_flags(widget_flags, &active_canvaswrapper.canvas());
                 appwindow.refresh_ui();
+                appwindow
+                    .overlays()
+                    .zoomwindow()
+                    .set_canvas(Some(&active_canvaswrapper.canvas()));
             }
         ));
 
