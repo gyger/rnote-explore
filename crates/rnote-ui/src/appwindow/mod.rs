@@ -5,8 +5,8 @@ mod imp;
 
 // Imports
 use crate::{
-    FileType, RnApp, RnCanvas, RnCanvasWrapper, RnMainHeader, RnOverlays, RnSidebar, config,
-    dialogs, env,
+    FileType, RnApp, RnCanvas, RnCanvasWrapper, RnMainHeader, RnOverlays, RnPresentationWindow,
+    RnSidebar, config, dialogs, env,
 };
 use adw::{prelude::*, subclass::prelude::*};
 use core::cell::{Ref, RefMut};
@@ -25,6 +25,13 @@ use rnote_engine::{WidgetFlags, engine::EngineTask};
 use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, error};
+
+/// Actions acting on the audience window, disabled and reset while it is closed.
+const PRESENTATION_TOGGLES: [&str; 3] = [
+    "presentation-lock-page",
+    "presentation-freeze",
+    "presentation-blank",
+];
 
 glib::wrapper! {
     pub(crate) struct RnAppWindow(ObjectSubclass<imp::RnAppWindow>)
@@ -304,8 +311,109 @@ impl RnAppWindow {
         app_icon_theme.add_resource_path((String::from(config::APP_IDPATH) + "icons").as_str());
     }
 
+    /// The audience window, once the toggle has opened it for the first time.
+    pub(crate) fn presentation_window(&self) -> Option<RnPresentationWindow> {
+        self.imp().presentation_window.borrow().clone()
+    }
+
+    /// Open or close the audience window. It follows the active canvas only while shown.
+    pub(crate) fn show_presentation_window(&self, show: bool) {
+        if !show {
+            if let Some(window) = self.presentation_window() {
+                // Clear while a canvas is still followed, so reopening starts live.
+                window.set_page_locked(false);
+                window.set_frozen(false);
+                window.set_blanked(false);
+                window.set_canvas(None);
+                window.set_visible(false);
+            }
+            self.reset_presentation_actions();
+            self.refresh_presentation_actions();
+            return;
+        }
+
+        let window = self.presentation_window().unwrap_or_else(|| {
+            let window = RnPresentationWindow::new();
+            window.set_application(self.application().as_ref());
+
+            // Closing the window switches the toggle off.
+            window.connect_close_request(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_| {
+                    appwindow.set_property("presentation", false);
+                    glib::Propagation::Proceed
+                }
+            ));
+
+            // Plugging a projector in or out changes whether flipping has a target.
+            WidgetExt::display(self)
+                .monitors()
+                .connect_items_changed(clone!(
+                    #[weak(rename_to=appwindow)]
+                    self,
+                    move |_, _, _, _| appwindow.refresh_presentation_actions()
+                ));
+
+            self.imp().presentation_window.replace(Some(window.clone()));
+            window
+        });
+
+        window.set_canvas(self.active_tab_canvas().as_ref());
+        window.present_on_audience_monitor(self);
+        self.refresh_presentation_actions();
+    }
+
+    /// Enable the toggles while the audience window is shown, flipping only with a second screen.
+    fn refresh_presentation_actions(&self) {
+        let shown = self
+            .presentation_window()
+            .is_some_and(|window| window.is_visible());
+        self.overlays().set_presentation_visible(shown);
+        let monitor_count = WidgetExt::display(self).monitors().n_items();
+
+        for name in PRESENTATION_TOGGLES {
+            if let Some(action) = self.presentation_action(name) {
+                action.set_enabled(shown);
+            }
+        }
+        if let Some(action) = self.presentation_action("presentation-flip-screen") {
+            action.set_enabled(shown && monitor_count > 1);
+        }
+    }
+
+    fn reset_presentation_actions(&self) {
+        for name in PRESENTATION_TOGGLES {
+            if let Some(action) = self.presentation_action(name) {
+                action.set_state(&false.to_variant());
+            }
+        }
+    }
+
+    fn presentation_action(&self, name: &str) -> Option<gio::SimpleAction> {
+        self.lookup_action(name)
+            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+    }
+
+    /// Move the audience window to the next display.
+    pub(crate) fn flip_presentation_screen(&self) {
+        let Some(window) = self
+            .presentation_window()
+            .filter(|window| window.is_visible())
+        else {
+            return;
+        };
+        window.flip_screen(self);
+    }
+
     /// Called to close the window
     pub(crate) fn close_force(&self) {
+        if let Some(window) = self.imp().presentation_window.take() {
+            window.destroy();
+        }
+
         if self.app().settings_schema_found() {
             // Saving all state
             if let Err(e) = self.save_to_settings() {
@@ -337,8 +445,18 @@ impl RnAppWindow {
             canvas.queue_draw();
             self.overlays().zoomwindow().queue_redraw();
         }
+        // The audience camera follows the lecturer's page, so scrolling concerns it too.
+        if widget_flags.redraw || widget_flags.view_modified {
+            if let Some(window) = self.presentation_window() {
+                window.queue_redraw();
+            }
+        }
         if widget_flags.resize {
             canvas.queue_resize();
+            // The page format may have changed.
+            if let Some(window) = self.presentation_window() {
+                window.refresh_page_ratio();
+            }
         }
         if widget_flags.refresh_ui {
             self.refresh_ui();
