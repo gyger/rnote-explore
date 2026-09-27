@@ -1,17 +1,21 @@
 {
   "version": 5,
-  "prev": "d75e8224294edde4cb022ee644dc6b51b87850c6",
-  "head": "0eb33f91cf778ed9bf615cf8ec106936a97e7531",
+  "prev": "59179197dbd1f3f25d6f9a93d7d2214895a2afb6",
+  "head": "ee002665c3fcde944206309b9556e4fecd083659",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "zoom-window",
-    "screen-ratio-formats"
+    "screen-ratio-formats",
+    "dual-screen"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
+    "dual-screen": {
+      "oid": "ee002665c3fcde944206309b9556e4fecd083659"
+    },
     "overlay-workflow": {
       "oid": "909a3a52aaff1813b41be01bd58d7701827d2cea"
     },

@@ -1,0 +1,55 @@
+Bottom: b5d2298d80bbd61b4b75aad024077b31e6f56687
+Top:    b5d2298d80bbd61b4b75aad024077b31e6f56687
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-09-27 10:54:28 +0200
+
+Add a presentation window for the audience
+
+Purpose: dual-screen lecturing. The lecturer zooms in to write, while
+the audience window on the projector keeps showing the whole page.
+Toggle on F8 or the canvas menu; Shift+F8 flips it to another screen.
+
+Behaviour:
+- Opens fullscreen on the first monitor that is not the lecturer's,
+  as a plain window otherwise, so it works without a projector. Not
+  persisted: a projector should not reappear on the next launch.
+- Everything beside the page is letterbox; the background pattern is
+  dropped (ruling is a writing aid for the lecturer only).
+- The laser pointer is shown on the audience view while the laser
+  tool is active; other pen overlays (selection handles, indicators)
+  never are.
+- Flip Screen offers every monitor, the lecturer's included, and is
+  insensitive without a second screen; it follows the display list.
+- Lecturer controls, in a Presentation submenu of the canvas menu and
+  on a pen picker button that swaps the sidebar to a presentation
+  page (shown only while the audience window is open):
+  Lock Page holds the audience on one page while the lecturer scrolls
+  (ink on that page still appears); Freeze View holds a still of what
+  the audience last saw; Blank Screen shows only the letterbox.
+  All clear when the audience window closes, and are pushed onto the
+  canvas it follows after a tab switch.
+- A windowed audience view re-takes the page shape when the format
+  changes; fullscreen is left letterboxed.
+
+Approach:
+- Engine: Presentation (crates/rnote-engine/src/presentation.rs,
+  engine/presentation.rs) holds audience state per engine, so each
+  tab keeps its own framing. The audience camera is not stored; it is
+  built per draw from window size and the lecturer's page, so nothing
+  needs syncing and redraw needs no mutable engine borrow (the flags
+  arrive from inside other borrows; a second borrow could panic).
+- Pages tile from the coordinate origin, not the document origin,
+  which drifts with infinite-layout padding; frames anchor there.
+- UI: crates/rnote-ui/src/presentationwindow/, a passive widget with
+  no controllers drawing the lecturer's store, following zoom-window's
+  zoomcanvas pattern. Freeze is a texture in the widget, captured by
+  rendering the engine off-screen (snapshotting the widget would
+  recurse into the frozen branch).
+- Rnote ships the icons it names: a devel build has no Adwaita on the
+  icon path, so stock icon names render as nothing.
+
+Constraints: builds on zoom-window, which must keep working alongside
+it. No change to the file format; nothing changes while the window is
+closed.
+
+Assisted by: Claude Code / Claude Opus 5
