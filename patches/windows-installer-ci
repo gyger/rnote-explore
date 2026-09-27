@@ -1,7 +1,7 @@
-Bottom: bd6d8bfd670b4ec94e358ac766e83912a18c0223
-Top:    6ec59d42d75f7e42587d934f3dcf391d71c14634
+Bottom: eec81801a5809a653216f9fb0e0988a46a7101ee
+Top:    8eb504df5ea36201df2cf800ca5c3b819c4a841e
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-09-27 12:07:52 +0200
+Date:   2026-09-27 12:34:42 +0200
 
 Build an unofficial Windows installer from a tag
 
