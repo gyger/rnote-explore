@@ -1,0 +1,117 @@
+---
+
+name: Overlay Windows Build
+
+# Windows installer for the commit tagged `build` (`git overlay-build`).
+# Build steps follow release-windows.yml; keep them in sync on rebase.
+#
+#   -> release `build`, asset rnote-win-installer-overlay-x86_64.exe
+#   -> About dialog: 0.15.0+overlay-29ea24a
+
+"on":
+  push:
+    tags:
+      - build
+
+concurrency:
+  group: overlay-windows-build
+  cancel-in-progress: true
+
+env:
+  INSTALLER_NAME: rnote-win-installer-overlay-x86_64
+  UPSTREAM_URL: https://github.com/flxzt/rnote.git
+
+jobs:
+  build:
+    runs-on: windows-2025
+    permissions:
+      # needed for publishing the installer as a release asset
+      contents: write
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Install Inno 6
+        shell: pwsh
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\") {
+            echo "inno already installed"
+          } else {
+            winget install -e --id JRSoftware.InnoSetup -v 6.4.3 --accept-package-agreements `
+              --accept-source-agreements --disable-interactivity --scope machine
+            if (Test-Path "C:\Program Files (x86)\Inno Setup 6\") {
+              echo "inno installed successfully"
+            } else {
+              throw "could not find inno's installation folder"
+            }
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Notes list the commits between upstream main and the tagged commit.
+      - name: Set version and release notes
+        id: build_identity
+        shell: bash
+        run: |
+          git fetch --no-tags --quiet "${UPSTREAM_URL}" main
+          base="$(git merge-base FETCH_HEAD HEAD)"
+          echo "version_extra=+overlay-$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
+          {
+            echo "Rolling build of the StGit overlay, not a release."
+            echo
+            echo "Built from ${GITHUB_SHA} on upstream $(git rev-parse --short=7 "${base}"). Patches:"
+            echo
+            git log --reverse --format='- %s' "${base}..HEAD"
+          } > "${RUNNER_TEMP}/notes.md"
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@e9898307ac31d1a803454791be09ab9973336e1c
+        with:
+          release: false
+          update: true
+          install: |
+            mingw-w64-x86_64-binutils
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95-gnu
+
+      - name: Configure PATH
+        run: echo "export PATH=$PATH:/c/Users/$USER/.cargo/bin:/c/Program\ Files\ \(x86\)/Inno\ Setup\ 6" > ~/.bashrc
+
+      - name: Prerequisites
+        run: |
+          cargo install --locked just
+          just ci=true prerequisites-win
+
+      # `just configure` interpolates its arguments unquoted, so the version
+      # must stay free of spaces and parentheses.
+      - name: Setup
+        run: |
+          just ci=true setup-win-installer '${{ env.INSTALLER_NAME }}'
+          just configure -Dversion-extra='${{ steps.build_identity.outputs.version_extra }}'
+
+      - name: Build
+        run: just ci=true build
+
+      - name: Build installer
+        run: just ci=true build-win-installer
+
+      # Fixed release and asset name, so the download URL never changes.
+      - name: Publish installer on the build release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="${RUNNER_TEMP}/notes.md"
+          if gh release view build >/dev/null 2>&1; then
+            gh release edit build --notes-file "${notes}"
+          else
+            gh release create build --verify-tag --prerelease \
+              --title "Rnote overlay build" --notes-file "${notes}"
+          fi
+          gh release upload build "_mesonbuild/${INSTALLER_NAME}.exe" --clobber
