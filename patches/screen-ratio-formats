@@ -1,0 +1,21 @@
+Bottom: 65b31ac479369f6e03cb6d83b8f7768c57360c90
+Top:    65b31ac479369f6e03cb6d83b8f7768c57360c90
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-09-27 10:53:53 +0200
+
+Add screen ratio page formats
+
+Purpose: a page in a paper format leaves bars on a projector. Offer
+16:9, 16:10 and 4:3 beside the paper sizes, so a lecture document can
+have the shape of the room's beamer and fill it edge to edge.
+
+Approach: the ratios are sized from the A4 long edge, keeping a
+screen page as wide as a landscape A4, so pen and handwriting stay the
+size the lecturer is used to. They name their landscape shape, so
+picking one switches the orientation to landscape.
+
+Constraints: independent of the presentation window, kept below it so
+it can go upstream alone. Existing formats and stored page sizes are
+unchanged.
+
+Assisted by: Claude Code / Claude Opus 5
