@@ -74,10 +74,12 @@ jobs:
       - name: Setup
         run: just ci=true setup-win-installer '${{ steps.set_installer_name.outputs.name }}'
 
-      # Overlay: the About dialog reads e.g. 0.15.0+overlay-29ea24a.
-      - name: Mark overlay version
+      # Overlay: About dialog reads e.g. 0.15.0+overlay-29ea24a; installs as "Rnote (overlay)".
+      - name: Mark overlay build
         if: github.ref == 'refs/tags/overlay-build'
-        run: just configure -Dversion-extra=+overlay-$(git rev-parse --short=7 HEAD)
+        run: >-
+          just configure -Dwin-installer-identity=overlay
+          -Dversion-extra=+overlay-$(git rev-parse --short=7 HEAD)
 
       - name: Build
         run: just ci=true build

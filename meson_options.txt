@@ -41,3 +41,10 @@ option(
   value: '',
   description: 'Appended to the displayed version, e.g. "+overlay-29ea24a" to mark a build of the downstream overlay.',
 )
+option(
+  'win-installer-identity',
+  type: 'combo',
+  choices: ['official', 'overlay'],
+  value: 'official',
+  description: 'Only relevant for the Windows installer: "overlay" installs beside the official Rnote, under its own name and AppId.',
+)

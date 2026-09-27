@@ -260,6 +260,17 @@ if build_ui == true
     inno_script_conf.set_quoted('UI_OUTPUT', ui_output)
     inno_script_conf.set_quoted('INSTALLER_NAME', win_installer_name)
 
+    # An overlay installer gets its own name and AppId, so it installs beside the
+    # official Rnote instead of replacing it.
+    inno_app_name = app_name_capitalized
+    inno_guid = '14CA6E6F-6384-467B-B139-D6305C0F4431'
+    if get_option('win-installer-identity') == 'overlay'
+        inno_app_name += ' (overlay)'
+        inno_guid = 'DB782E92-544D-49AC-8718-E24C89A5F500'
+    endif
+    inno_script_conf.set_quoted('WIN_INSTALLER_APP_NAME', inno_app_name)
+    inno_script_conf.set('WIN_INSTALLER_GUID', inno_guid)
+
     inno_script = configure_file(
         input: 'build-aux/rnote_inno.iss.in',
         output: 'rnote_inno.iss',
