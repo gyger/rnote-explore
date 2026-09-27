@@ -1,11 +1,10 @@
 {
   "version": 5,
-  "prev": "9b0e0dabdf43f0120d026c7523cbaf24205a516e",
-  "head": "c0f581819fbdec78850ed86be3cbaee6591df6b1",
+  "prev": "6b1ce9be881e565a48d4f5f7568619dbd69993ed",
+  "head": "53bca60d6e6cf710e22a167d282bc6712614e4fe",
   "applied": [
     "overlay-workflow",
-    "windows-msys2-packages",
-    "refresh-temp"
+    "windows-msys2-packages"
   ],
   "unapplied": [
     "windows-installer-ci",
@@ -22,9 +21,6 @@
     "overlay-workflow": {
       "oid": "a836ea86e85338f0496b1659f55194fb28457b3c"
     },
-    "refresh-temp": {
-      "oid": "c0f581819fbdec78850ed86be3cbaee6591df6b1"
-    },
     "screen-ratio-formats": {
       "oid": "b4fac39c91e79d031b338b3c4148b4744a1a5461"
     },
@@ -35,7 +31,7 @@
       "oid": "107e6fd8f109497525a2c275bc30dad8996c09d9"
     },
     "windows-msys2-packages": {
-      "oid": "6dbcc2008f7275e3d9f4559eb9434857762726ff"
+      "oid": "53bca60d6e6cf710e22a167d282bc6712614e4fe"
     },
     "zoom-window": {
       "oid": "acfcb2fb5aaaf49db077aafe875e42606774e7a3"
