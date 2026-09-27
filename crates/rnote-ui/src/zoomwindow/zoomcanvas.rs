@@ -15,7 +15,7 @@ use tracing::error;
 mod imp {
     use super::*;
 
-    /// The magnified view. It has no engine of its own, it draws and writes into the followed canvas.
+    /// The magnified view. It draws and writes into the followed canvas, it has no engine.
     #[derive(Debug)]
     pub(crate) struct RnZoomCanvas {
         pub(crate) canvas: glib::WeakRef<RnCanvas>,

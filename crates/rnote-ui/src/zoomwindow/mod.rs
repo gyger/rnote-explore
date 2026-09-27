@@ -100,7 +100,7 @@ impl RnZoomWindow {
         glib::Object::new()
     }
 
-    /// Redraw the magnified view. GTK caches child render nodes, so the inner canvas must be queued itself.
+    /// Redraw the magnified view. GTK caches child render nodes, so queue the inner canvas.
     pub(crate) fn queue_redraw(&self) {
         self.imp().zoomcanvas.queue_draw();
     }
