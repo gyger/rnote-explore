@@ -1,27 +1,23 @@
 {
   "version": 5,
-  "prev": "cf431dfc46438c54a8d2ea17e77b48e602f41467",
-  "head": "e2793b8894730314608bd026215e020d2dcd8390",
+  "prev": "27e2f73856ccd2ab8433177c3390c24ffb30105f",
+  "head": "7b09da25ce30a585631b303461cc1d7427d6865b",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "zoom-window",
     "screen-ratio-formats",
-    "dual-screen",
-    "refresh-temp"
+    "dual-screen"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
-      "oid": "b8bfb136ceb4103c16911e43a227d174f4dfb8b9"
+      "oid": "7b09da25ce30a585631b303461cc1d7427d6865b"
     },
     "overlay-workflow": {
       "oid": "e567fc8f0abe06d635b18eabe324050ab84b2e18"
-    },
-    "refresh-temp": {
-      "oid": "e2793b8894730314608bd026215e020d2dcd8390"
     },
     "screen-ratio-formats": {
       "oid": "8517f6b7ec7e19a759b60aaba57e3d25fa3484d7"
