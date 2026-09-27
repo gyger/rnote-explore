@@ -5,20 +5,16 @@ Date:   2026-09-27 11:47:45 +0200
 
 Warm up Defender scan during Windows install
 
-Windows Defender scans a binary on its first execution and caches the
-verdict per file instance. A freshly installed rnote.exe therefore costs
-roughly 4.5 s extra on the user's first double-click, on top of the ~2 s
-steady-state startup, and is fast every launch after that.
+Purpose: the first launch of a fresh install takes ~6.8 s instead of
+~2.3 s, because Defender scans a binary on its first execution. Move
+that wait into the installer's progress bar.
 
-Measured on this machine: 6.8 s first launch against 2.3 s afterwards. A
-hardlink to an already-executed file shows no penalty, a byte-identical
-fresh copy shows the full one, and an on-demand Start-MpScan does not
-satisfy it -- only real execution does. Stripping debug symbols from
-218 MB to 21 MB changed nothing, so image size is not the driver.
+Approach: an Inno [Run] step starts rnote.exe --help hidden and waits.
+Only real execution satisfies the scan: Start-MpScan does not, and a
+byte-identical copy pays again (the verdict is cached per file).
+Stripping debug symbols (218 -> 21 MB) changed nothing.
 
-Run the binary once, hidden, as an install step so that scan lands inside
-the progress bar where waiting is expected. This relocates the cost, it
-does not remove it; the root fix is code signing, which builds the
-reputation that makes the lookup cheap.
+Constraints: relocates the cost, does not remove it; code signing is
+the real fix. The step must exit on its own (--help does).
 
 Assisted by: Claude Code / Claude Opus 5
