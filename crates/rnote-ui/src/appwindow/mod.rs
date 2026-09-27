@@ -26,6 +26,13 @@ use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, error};
 
+/// Actions acting on the audience window, disabled and reset while it is closed.
+const PRESENTATION_TOGGLES: [&str; 3] = [
+    "presentation-lock-page",
+    "presentation-freeze",
+    "presentation-blank",
+];
+
 glib::wrapper! {
     pub(crate) struct RnAppWindow(ObjectSubclass<imp::RnAppWindow>)
         @extends Widget, gtk4::Window, adw::Window, gtk4::ApplicationWindow, adw::ApplicationWindow,
@@ -309,15 +316,11 @@ impl RnAppWindow {
         self.imp().presentation_window.borrow().clone()
     }
 
-    /// Open or close the audience window.
-    ///
-    /// It follows the active canvas only while shown, so the engines of other tabs keep
-    /// their audience camera idle.
+    /// Open or close the audience window. It follows the active canvas only while shown.
     pub(crate) fn show_presentation_window(&self, show: bool) {
         if !show {
             if let Some(window) = self.presentation_window() {
-                // Clear what was set on the audience view, while it still has a canvas to
-                // clear it on. Reopening starts live, on the lecturer's page.
+                // Clear while a canvas is still followed, so reopening starts live.
                 window.set_page_locked(false);
                 window.set_frozen(false);
                 window.set_blanked(false);
@@ -333,7 +336,7 @@ impl RnAppWindow {
             let window = RnPresentationWindow::new();
             window.set_application(self.application().as_ref());
 
-            // Closing the window is another way of switching the toggle off.
+            // Closing the window switches the toggle off.
             window.connect_close_request(clone!(
                 #[weak(rename_to=appwindow)]
                 self,
@@ -345,7 +348,7 @@ impl RnAppWindow {
                 }
             ));
 
-            // A projector plugged in or unplugged decides whether flipping has a target.
+            // Plugging a projector in or out changes whether flipping has a target.
             WidgetExt::display(self)
                 .monitors()
                 .connect_items_changed(clone!(
@@ -363,20 +366,15 @@ impl RnAppWindow {
         self.refresh_presentation_actions();
     }
 
-    /// The presentation actions need an audience window to act on, and flipping needs a
-    /// second screen to move it to.
+    /// Enable the toggles while the audience window is shown, flipping only with a second screen.
     fn refresh_presentation_actions(&self) {
         let shown = self
             .presentation_window()
             .is_some_and(|window| window.is_visible());
-        self.overlays().set_presentation_chrome_visible(shown);
+        self.overlays().set_presentation_visible(shown);
         let monitor_count = WidgetExt::display(self).monitors().n_items();
 
-        for name in [
-            "presentation-lock-page",
-            "presentation-freeze",
-            "presentation-blank",
-        ] {
+        for name in PRESENTATION_TOGGLES {
             if let Some(action) = self.presentation_action(name) {
                 action.set_enabled(shown);
             }
@@ -386,13 +384,8 @@ impl RnAppWindow {
         }
     }
 
-    /// Closing the audience window leaves nothing switched on behind it.
     fn reset_presentation_actions(&self) {
-        for name in [
-            "presentation-lock-page",
-            "presentation-freeze",
-            "presentation-blank",
-        ] {
+        for name in PRESENTATION_TOGGLES {
             if let Some(action) = self.presentation_action(name) {
                 action.set_state(&false.to_variant());
             }
@@ -452,7 +445,7 @@ impl RnAppWindow {
             canvas.queue_draw();
             self.overlays().zoomwindow().queue_redraw();
         }
-        // The audience camera follows the page, so scrolling without a redraw still concerns it.
+        // The audience camera follows the lecturer's page, so scrolling concerns it too.
         if widget_flags.redraw || widget_flags.view_modified {
             if let Some(window) = self.presentation_window() {
                 window.queue_redraw();
@@ -460,7 +453,7 @@ impl RnAppWindow {
         }
         if widget_flags.resize {
             canvas.queue_resize();
-            // The page format may have changed, and a windowed audience view takes its shape.
+            // The page format may have changed.
             if let Some(window) = self.presentation_window() {
                 window.refresh_page_ratio();
             }

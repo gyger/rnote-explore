@@ -11,12 +11,11 @@ use tracing::error;
 mod imp {
     use super::*;
 
-    /// The audience view. It has no engine of its own and takes no input, it only draws the
-    /// followed canvas through the audience camera.
+    /// The audience view: the followed canvas through the audience camera, no input.
     #[derive(Debug, Default)]
     pub(crate) struct RnPresentationCanvas {
         pub(crate) canvas: glib::WeakRef<RnCanvas>,
-        /// The still shown while frozen: what the audience saw at the moment of freezing.
+        /// What the audience saw when the view was frozen.
         pub(crate) frozen_still: RefCell<Option<gdk::Texture>>,
     }
 
@@ -62,7 +61,6 @@ mod imp {
         fn snapshot(&self, snapshot: &gtk4::Snapshot) {
             let obj = self.obj();
 
-            // Frozen: the audience keeps seeing the still, whatever the lecturer draws next.
             if let Some(still) = self.frozen_still.borrow().as_ref() {
                 still.snapshot(snapshot, obj.width() as f64, obj.height() as f64);
                 return;
@@ -73,7 +71,7 @@ mod imp {
             };
             if let Err(e) = canvas
                 .engine_ref()
-                .draw_presentation_to_gtk_snapshot(snapshot, obj.bounds())
+                .draw_audience_to_gtk_snapshot(snapshot, obj.bounds())
             {
                 error!("Snapshot presentation canvas failed, Err: {e:?}");
             }
@@ -103,9 +101,7 @@ impl RnPresentationCanvas {
         self.imp().canvas.upgrade()
     }
 
-    /// Follow `canvas`, `None` while the window is hidden.
-    ///
-    /// Only the followed engine keeps audience state, so the other tabs stay idle.
+    /// Follow `canvas`, `None` while the window is hidden. Only the followed engine is visible.
     pub(crate) fn set_canvas(&self, canvas: Option<&RnCanvas>) {
         if let Some(previous) = self.canvas() {
             let _ = previous.engine_mut().presentation_set_visible(false);
@@ -122,10 +118,6 @@ impl RnPresentationCanvas {
     }
 
     /// Hold the audience on a still of what they see now, or let the view live again.
-    ///
-    /// Locking the page still shows the ink as it is written. Freezing does not: the audience
-    /// keeps the picture from the moment it was frozen, so the lecturer can prepare the next
-    /// step in plain sight.
     pub(crate) fn set_frozen(&self, frozen: bool) {
         let still = frozen.then(|| self.capture_still()).flatten();
         self.imp().frozen_still.replace(still);
@@ -141,12 +133,11 @@ impl RnPresentationCanvas {
             return None;
         }
 
-        // Drawn through the engine rather than the widget, so this cannot recurse into the
-        // frozen branch of `snapshot()`.
+        // Through the engine, not the widget, which would recurse into the frozen branch.
         let snapshot = gtk4::Snapshot::new();
         if let Err(e) = canvas
             .engine_ref()
-            .draw_presentation_to_gtk_snapshot(&snapshot, bounds)
+            .draw_audience_to_gtk_snapshot(&snapshot, bounds)
         {
             error!("Capturing the presentation still failed, Err: {e:?}");
             return None;

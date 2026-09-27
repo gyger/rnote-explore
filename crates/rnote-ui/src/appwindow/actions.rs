@@ -1,6 +1,6 @@
 // Imports
 use crate::RnApp;
-use crate::{RnAppWindow, RnCanvas, config, dialogs};
+use crate::{RnAppWindow, RnCanvas, RnPresentationWindow, config, dialogs};
 use gettextrs::gettext;
 use gtk4::gio::InputStream;
 use gtk4::graphene;
@@ -558,50 +558,37 @@ impl RnAppWindow {
             }
         ));
 
-        action_presentation_lock_page.connect_change_state(clone!(
-            #[weak(rename_to=appwindow)]
-            self,
-            move |action, state| {
-                let Some(locked) = state.and_then(|state| state.get::<bool>()) else {
-                    return;
-                };
-                action.set_state(&locked.to_variant());
+        // Audience window toggles
+        let presentation_toggles: [(_, fn(&RnPresentationWindow, bool)); 3] = [
+            (
+                &action_presentation_lock_page,
+                RnPresentationWindow::set_page_locked,
+            ),
+            (
+                &action_presentation_freeze,
+                RnPresentationWindow::set_frozen,
+            ),
+            (
+                &action_presentation_blank,
+                RnPresentationWindow::set_blanked,
+            ),
+        ];
+        for (action, apply) in presentation_toggles {
+            action.connect_change_state(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |action, state| {
+                    let Some(active) = state.and_then(|state| state.get::<bool>()) else {
+                        return;
+                    };
+                    action.set_state(&active.to_variant());
 
-                if let Some(window) = appwindow.presentation_window() {
-                    window.set_page_locked(locked);
+                    if let Some(window) = appwindow.presentation_window() {
+                        apply(&window, active);
+                    }
                 }
-            }
-        ));
-
-        action_presentation_freeze.connect_change_state(clone!(
-            #[weak(rename_to=appwindow)]
-            self,
-            move |action, state| {
-                let Some(frozen) = state.and_then(|state| state.get::<bool>()) else {
-                    return;
-                };
-                action.set_state(&frozen.to_variant());
-
-                if let Some(window) = appwindow.presentation_window() {
-                    window.set_frozen(frozen);
-                }
-            }
-        ));
-
-        action_presentation_blank.connect_change_state(clone!(
-            #[weak(rename_to=appwindow)]
-            self,
-            move |action, state| {
-                let Some(blanked) = state.and_then(|state| state.get::<bool>()) else {
-                    return;
-                };
-                action.set_state(&blanked.to_variant());
-
-                if let Some(window) = appwindow.presentation_window() {
-                    window.set_blanked(blanked);
-                }
-            }
-        ));
+            ));
+        }
 
         action_zoom_window_new_line.connect_activate(clone!(
             #[weak(rename_to=appwindow)]

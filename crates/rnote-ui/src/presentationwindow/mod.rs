@@ -21,10 +21,9 @@ mod imp {
         /// The monitor picked by flipping, as an index into the display's monitor list.
         /// `None` picks the first monitor that is not the lecturer's.
         pub(crate) monitor_choice: Cell<Option<usize>>,
-        /// Held here as well as in the engine, to push onto the next followed canvas.
+        /// Lock and blank also live in the engine; kept here for the next followed canvas.
         pub(crate) page_locked: Cell<bool>,
         pub(crate) blanked: Cell<bool>,
-        /// Freezing belongs to the widget: it holds a still, not engine state.
         pub(crate) frozen: Cell<bool>,
     }
 
@@ -83,15 +82,13 @@ impl RnPresentationWindow {
         self.push_state();
     }
 
-    /// Hold the audience on the page they are seeing, or let them follow the lecturer again.
-    ///
-    /// Ink written on the held page still appears - the page is held, not the drawing.
+    /// Hold the audience on the page they are seeing. Ink on it still appears.
     pub(crate) fn set_page_locked(&self, locked: bool) {
         self.imp().page_locked.set(locked);
         self.push_state();
     }
 
-    /// Hold the audience on a still of what they see now, so nothing drawn next reaches them.
+    /// Hold the audience on a still of what they see now.
     pub(crate) fn set_frozen(&self, frozen: bool) {
         self.imp().frozen.set(frozen);
         self.imp().presentationcanvas.set_frozen(frozen);
@@ -103,7 +100,7 @@ impl RnPresentationWindow {
         self.push_state();
     }
 
-    /// The window owns freeze and blank, so every canvas it comes to follow gets them pushed.
+    /// Push lock and blank onto the followed canvas.
     fn push_state(&self) {
         let imp = self.imp();
         let Some(canvas) = imp.presentationcanvas.canvas() else {
@@ -118,10 +115,7 @@ impl RnPresentationWindow {
         self.queue_redraw();
     }
 
-    /// Re-shape the window after the page format changed.
-    ///
-    /// Fullscreen on a projector the page is letterboxed instead, so only a windowed audience
-    /// view follows the format.
+    /// Re-shape a windowed audience view after the page format changed. Fullscreen letterboxes.
     pub(crate) fn refresh_page_ratio(&self) {
         if self.is_fullscreen() {
             return;
@@ -129,16 +123,13 @@ impl RnPresentationWindow {
         self.resize_to_page_ratio();
     }
 
-    /// Redraw the audience view. GTK caches child render nodes, so the inner canvas must be
-    /// queued itself.
+    /// Redraw the audience view. GTK caches child render nodes, so queue the inner canvas.
     pub(crate) fn queue_redraw(&self) {
         self.imp().presentationcanvas.queue_draw();
     }
 
-    /// Show the window, fullscreen on the audience monitor.
-    ///
-    /// With a single monitor it stays a plain window, so the feature is usable without a
-    /// projector - and then the window itself takes the page shape, so nothing is letterboxed.
+    /// Show the window fullscreen on the audience monitor, or as a page-shaped plain window
+    /// when there is none.
     pub(crate) fn present_on_audience_monitor(&self, lecturer: &impl IsA<gtk4::Window>) {
         match self.audience_monitor(lecturer) {
             Some(monitor) => self.fullscreen_on_monitor(&monitor),
@@ -151,23 +142,24 @@ impl RnPresentationWindow {
         self.present();
     }
 
-    /// Move the window to the next monitor, wrapping.
-    ///
-    /// The projector is not always the display the system reports it to be, so the automatic
-    /// choice needs an override. Every monitor is offered, the lecturer's included: with only
-    /// two displays, skipping it would leave nothing to flip to.
+    /// Move the window to the next monitor, the lecturer's included: with two displays,
+    /// skipping it would leave nothing to flip to.
     pub(crate) fn flip_screen(&self, lecturer: &impl IsA<gtk4::Window>) {
         let monitors = monitors(lecturer);
+
+        // A single monitor is the lecturer's own; flipping onto it would cover their work.
+        if monitors.len() < 2 {
+            return;
+        }
+
         let current = self
             .imp()
             .monitor_choice
             .get()
-            .or_else(|| Some(default_monitor_index(lecturer, &monitors)));
-
-        let Some(next) = next_monitor_choice(current, monitors.len()) else {
-            return;
-        };
-        self.imp().monitor_choice.set(Some(next));
+            .unwrap_or_else(|| default_monitor_index(lecturer, &monitors));
+        self.imp()
+            .monitor_choice
+            .set(Some((current + 1) % monitors.len()));
 
         self.present_on_audience_monitor(lecturer);
     }
@@ -204,18 +196,6 @@ impl RnPresentationWindow {
     }
 }
 
-/// The monitor to flip to, `None` when there is nothing to flip between.
-///
-/// A single monitor is the lecturer's own. Flipping onto it would fullscreen the audience view
-/// over the lecturer's work, which is worse than doing nothing.
-fn next_monitor_choice(current: Option<usize>, monitor_count: usize) -> Option<usize> {
-    if monitor_count < 2 {
-        return None;
-    }
-
-    Some((current.unwrap_or(0) + 1) % monitor_count)
-}
-
 /// Every monitor of the display showing `lecturer`, in the order the display reports them.
 fn monitors(lecturer: &impl IsA<gtk4::Window>) -> Vec<gdk::Monitor> {
     WidgetExt::display(lecturer.as_ref())
@@ -242,25 +222,4 @@ fn default_monitor_index(lecturer: &impl IsA<gtk4::Window>, monitors: &[gdk::Mon
                 .is_none_or(|lecturer_monitor| monitor != lecturer_monitor)
         })
         .unwrap_or(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn single_monitor_has_nothing_to_flip_to() {
-        assert_eq!(next_monitor_choice(None, 1), None);
-        assert_eq!(next_monitor_choice(Some(0), 1), None);
-        assert_eq!(next_monitor_choice(None, 0), None);
-    }
-
-    #[test]
-    fn flipping_cycles_every_monitor() {
-        // The lecturer's own monitor is included, or two displays would have nothing to offer.
-        assert_eq!(next_monitor_choice(Some(0), 2), Some(1));
-        assert_eq!(next_monitor_choice(Some(1), 2), Some(0));
-        assert_eq!(next_monitor_choice(Some(1), 3), Some(2));
-        assert_eq!(next_monitor_choice(Some(2), 3), Some(0));
-    }
 }

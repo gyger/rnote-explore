@@ -114,8 +114,7 @@ impl RnPenPicker {
         self.imp().redo_button.get()
     }
 
-    /// Show the presentation button. It belongs to the presentation window, not to a pen, so
-    /// it only sits in the picker while there is an audience to control.
+    /// Show the presentation button, while there is an audience window to control.
     pub(crate) fn set_presentation_visible(&self, visible: bool) {
         let imp = self.imp();
 
@@ -162,6 +161,7 @@ impl RnPenPicker {
         ));
 
         imp.toolbox.add_controller(pointer_controller_toolbox);
+
         // The presentation controls take over the pen sidebar, the way a pen's settings do.
         imp.presentation_toggle.connect_toggled(clone!(
             #[weak]

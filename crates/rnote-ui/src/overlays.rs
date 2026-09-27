@@ -160,7 +160,7 @@ impl RnOverlays {
     }
 
     /// Show or hide the presentation button in the pen picker.
-    pub(crate) fn set_presentation_chrome_visible(&self, visible: bool) {
+    pub(crate) fn set_presentation_visible(&self, visible: bool) {
         self.imp().penpicker.set_presentation_visible(visible);
     }
 
