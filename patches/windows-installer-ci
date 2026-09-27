@@ -1,22 +1,23 @@
 Bottom: 0ebe85684354444bd5b84a4d38f5c5d5c143135e
 Top:    0ed4f76dda877257686a58fd6c93aaabafc149cd
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-09-27 11:52:00 +0200
+Date:   2026-09-27 11:52:01 +0200
 
-Build the overlay Windows installer from the build tag
+Build an unofficial Windows installer from a tag
 
-Purpose: a Windows installer of the overlay that students and
-colleagues can download from one fixed public URL, and that says in
-its About dialog which build it is.
+Purpose: a Windows installer of the overlay at one fixed public URL,
+marked in its About dialog, that nobody can mistake for an official
+Rnote release.
 
-Approach: .github/workflows/overlay-windows-build.yml runs only when
-the build tag is pushed (git overlay-build), so a build is a
-deliberate act. It reuses upstream's just/MSYS2 installer recipes and
-uploads the result under a fixed name to a public prerelease on the
-build tag, replacing the previous one. A 'version-extra' meson option
-is appended to the version suffix; CI sets it to +overlay-<sha>, and
-the release notes list the patch subjects above upstream main.
+Approach: upstream's release-windows.yml also runs on the
+overlay-build tag (git overlay-build), so toolchain and action updates
+arrive with every rebase. Overlay steps only add a version mark
+(+overlay-<sha> via the 'version-extra' meson option) and upload the
+installer to one prerelease on that tag, titled and described as
+unofficial with a link to upstream's releases.
 
-Constraints: 'just configure' interpolates its arguments unquoted, so
-version-extra must stay free of spaces and parentheses. The option
-defaults to empty, leaving stock builds unchanged.
+Constraints: on a fork the release and dispatch paths of
+release-windows.yml and dist.yml never run, so no general-release
+installer or source archive is built there. Upstream behaviour is
+unchanged. 'just configure' interpolates unquoted, so version-extra
+stays free of spaces and parentheses.
