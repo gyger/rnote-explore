@@ -7,6 +7,7 @@ pub mod rendering;
 pub mod snapshot;
 pub mod strokecontent;
 pub mod visual_debug;
+pub mod zoomwindow;
 
 // Re-exports
 pub use animation::Animation;
@@ -26,6 +27,7 @@ use crate::store::StrokeKey;
 use crate::store::render_comp::{self, RenderCompState};
 use crate::strokes::content::GeneratedContentImages;
 use crate::strokes::textstroke::{TextAttribute, TextStyle};
+use crate::zoomwindow::ZoomWindow;
 use crate::{Camera, Document, PenHolder, StrokeStore};
 use crate::{SelectionCollision, WidgetFlags};
 use futures::StreamExt;
@@ -191,6 +193,9 @@ pub struct Engine {
     pub camera: Camera,
     #[serde(rename = "penholder")]
     pub penholder: PenHolder,
+    // Magnified writing panel, not part of the document
+    #[serde(skip)]
+    pub zoom_window: ZoomWindow,
 
     #[cfg(feature = "ui")]
     #[serde(skip)]
@@ -226,6 +231,7 @@ impl Default for Engine {
             store: StrokeStore::default(),
             camera: Camera::default(),
             penholder: PenHolder::default(),
+            zoom_window: ZoomWindow::default(),
 
             #[cfg(feature = "ui")]
             audioplayer: None,
@@ -485,6 +491,16 @@ impl Engine {
         pen_mode: Option<PenMode>,
         now: Instant,
     ) -> (EventPropagation, WidgetFlags) {
+        // A shown zoom box takes pen input landing on it, to be moved or resized.
+        if let Some(widget_flags) = self.zoom_window.handle_box_event(
+            &event,
+            &self.camera,
+            &self.document,
+            &self.document.config.background,
+        ) {
+            return (EventPropagation::Stop, widget_flags);
+        }
+
         self.penholder
             .handle_pen_event(event, pen_mode, now, &mut engine_view_mut!(self))
     }

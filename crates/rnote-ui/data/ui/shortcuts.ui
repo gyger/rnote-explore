@@ -163,6 +163,12 @@
                 <property name="subtitle" translatable="yes">Alt + Shift + Drag</property>
               </object>
             </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Toggle Zoom Window</property>
+                <property name="accelerator">F7</property>
+              </object>
+            </child>
           </object>
         </child>
         <child>

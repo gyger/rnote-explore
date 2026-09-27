@@ -5,13 +5,14 @@ mod appactions;
 use crate::{
     RnAppMenu, RnAppWindow, RnCanvas, RnCanvasMenu, RnCanvasWrapper, RnColorPicker, RnIconPicker,
     RnMainHeader, RnOverlays, RnPenPicker, RnPensSideBar, RnSettingsPanel, RnSidebar,
-    RnStrokeContentPreview, RnStrokeWidthPicker, RnUnitEntry, RnWorkspaceBrowser,
-    colorpicker::RnColorPad, colorpicker::RnColorSetter, config, penssidebar::RnBrushPage,
-    penssidebar::RnEraserPage, penssidebar::RnSelectorPage, penssidebar::RnShaperPage,
-    penssidebar::RnToolsPage, penssidebar::RnTypewriterPage, settingspanel::RnPenShortcutRow,
-    strokewidthpicker::RnStrokeWidthPreview, strokewidthpicker::RnStrokeWidthSetter,
-    strokewidthpicker::StrokeWidthPreviewStyle, workspacebrowser::RnFileRow,
-    workspacebrowser::RnWorkspacesBar, workspacebrowser::workspacesbar::RnWorkspaceRow,
+    RnStrokeContentPreview, RnStrokeWidthPicker, RnUnitEntry, RnWorkspaceBrowser, RnZoomCanvas,
+    RnZoomWindow, colorpicker::RnColorPad, colorpicker::RnColorSetter, config,
+    penssidebar::RnBrushPage, penssidebar::RnEraserPage, penssidebar::RnSelectorPage,
+    penssidebar::RnShaperPage, penssidebar::RnToolsPage, penssidebar::RnTypewriterPage,
+    settingspanel::RnPenShortcutRow, strokewidthpicker::RnStrokeWidthPreview,
+    strokewidthpicker::RnStrokeWidthSetter, strokewidthpicker::StrokeWidthPreviewStyle,
+    workspacebrowser::RnFileRow, workspacebrowser::RnWorkspacesBar,
+    workspacebrowser::workspacesbar::RnWorkspaceRow,
 };
 use adw::subclass::prelude::AdwApplicationImpl;
 use gtk4::{WindowGroup, gio, glib, glib::clone, prelude::*, subclass::prelude::*};
@@ -127,6 +128,8 @@ mod imp {
             RnStrokeContentPreview::static_type();
             RnSidebar::static_type();
             RnPenPicker::static_type();
+            RnZoomWindow::static_type();
+            RnZoomCanvas::static_type();
         }
 
         /// Initializes and shows a new app window
