@@ -1,10 +1,11 @@
 {
   "version": 5,
-  "prev": "3f3ba768a54294d4d7628ac547eb2956a0803f31",
-  "head": "6dbcc2008f7275e3d9f4559eb9434857762726ff",
+  "prev": "9b0e0dabdf43f0120d026c7523cbaf24205a516e",
+  "head": "c0f581819fbdec78850ed86be3cbaee6591df6b1",
   "applied": [
     "overlay-workflow",
-    "windows-msys2-packages"
+    "windows-msys2-packages",
+    "refresh-temp"
   ],
   "unapplied": [
     "windows-installer-ci",
@@ -20,6 +21,9 @@
     },
     "overlay-workflow": {
       "oid": "a836ea86e85338f0496b1659f55194fb28457b3c"
+    },
+    "refresh-temp": {
+      "oid": "c0f581819fbdec78850ed86be3cbaee6591df6b1"
     },
     "screen-ratio-formats": {
       "oid": "b4fac39c91e79d031b338b3c4148b4744a1a5461"
