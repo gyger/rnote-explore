@@ -1,0 +1,18 @@
+Bottom: 83c53e8835912479f8bd7990046a286a8a06ae1c
+Top:    83c53e8835912479f8bd7990046a286a8a06ae1c
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-10-15 17:37:46 +0200
+
+Start Windows shortcuts in the user's home
+
+Purpose: the Start menu and desktop shortcuts started Rnote in the
+install folder (Program Files), the default for Inno Setup icons.
+Start in the user's home instead.
+
+Approach: WorkingDir is the literal %USERPROFILE%, not an Inno
+constant. Windows expands it at launch, so an all-users install still
+starts each user in their own home.
+
+Constraints: installer only (rnote_inno.iss.in).
+
+Assisted by: Claude Code / Opus 5.5

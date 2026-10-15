@@ -1,11 +1,12 @@
 {
   "version": 5,
-  "prev": "f8436bc7bc1674d20e510387dda80952b405db06",
-  "head": "a10a73d41f9e3508a12f276ecdf78a1ec8a97755",
+  "prev": "c78f4f3c6c4a291d3fa4e164c51ab42b1406f89e",
+  "head": "e6df77266ee849ee09a1a4cfa747beccb0172b23",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
-    "windows-defender-warmup"
+    "windows-defender-warmup",
+    "windows-shortcut-home"
   ],
   "unapplied": [
     "zoom-window",
@@ -32,6 +33,9 @@
     },
     "windows-installer-ci": {
       "oid": "52dd282119a52321bc056a67c48dfa8a9a82235d"
+    },
+    "windows-shortcut-home": {
+      "oid": "e6df77266ee849ee09a1a4cfa747beccb0172b23"
     },
     "zoom-window": {
       "oid": "0a4219b20d6453e4d021de9bd05e92a4c3feaed5"
