@@ -33,6 +33,9 @@ const PRESENTATION_TOGGLES: [&str; 3] = [
     "presentation-blank",
 ];
 
+/// Drawing pad buttons, as labelled by the main window's pad controller.
+const PAD_BUTTON_LABELS: [&str; 4] = ["Button 1", "Button 2", "Button 3", "Button 4"];
+
 glib::wrapper! {
     pub(crate) struct RnAppWindow(ObjectSubclass<imp::RnAppWindow>)
         @extends Widget, gtk4::Window, adw::Window, gtk4::ApplicationWindow, adw::ApplicationWindow,
@@ -360,6 +363,7 @@ impl RnAppWindow {
                     move |_, _, _, _| appwindow.refresh_presentation_actions()
                 ));
 
+            self.add_pad_controller(&window);
             self.imp().presentation_window.replace(Some(window.clone()));
             window
         });
@@ -367,6 +371,22 @@ impl RnAppWindow {
         window.set_canvas(self.active_tab_canvas().as_ref());
         window.present_on_audience_monitor(self);
         self.refresh_presentation_actions();
+    }
+
+    /// Pad buttons reach the focused window only. Writing on the projector focuses the audience
+    /// window, so it triggers the main window's pad actions too.
+    fn add_pad_controller(&self, window: &RnPresentationWindow) {
+        let pad = gtk4::PadController::new(self, None);
+        for (button, label) in PAD_BUTTON_LABELS.iter().enumerate() {
+            pad.set_action(
+                gtk4::PadActionType::Button,
+                button as i32,
+                -1,
+                &gettext(*label),
+                &format!("drawing-pad-pressed-button-{button}"),
+            );
+        }
+        window.add_controller(pad);
     }
 
     /// Enable the toggles while the audience window is shown, flipping only with a second screen.
