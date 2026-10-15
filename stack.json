@@ -1,9 +1,11 @@
 {
   "version": 5,
-  "prev": "78a5cadacf341413c8cf6513a15bd2465f01e269",
-  "head": "489e0f5af20623b6c952df5b2f0024e58c3cf511",
+  "prev": "abddc99a4f34fc643869b728a8404721c7fe441d",
+  "head": "00bdceb11239980ccde4f2cf8cdb1b0fe82d90a6",
   "applied": [
-    "overlay-workflow",
+    "overlay-workflow"
+  ],
+  "unapplied": [
     "windows-installer-ci",
     "windows-defender-warmup",
     "zoom-window",
@@ -11,7 +13,6 @@
     "dual-screen",
     "projector-tablet"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
