@@ -7,6 +7,7 @@ pub mod presentation;
 pub mod rendering;
 pub mod snapshot;
 pub mod strokecontent;
+pub mod tablet;
 pub mod visual_debug;
 pub mod zoomwindow;
 
@@ -26,9 +27,12 @@ use crate::pens::PenMode;
 use crate::pens::{Pen, PenStyle};
 use crate::presentation::Presentation;
 use crate::store::StrokeKey;
+#[cfg(feature = "ui")]
+use crate::store::raster_cache::RasterCache;
 use crate::store::render_comp::{self, RenderCompState};
 use crate::strokes::content::GeneratedContentImages;
 use crate::strokes::textstroke::{TextAttribute, TextStyle};
+use crate::tablet::Tablet;
 use crate::zoomwindow::ZoomWindow;
 use crate::{Camera, Document, PenHolder, StrokeStore};
 use crate::{SelectionCollision, WidgetFlags};
@@ -153,6 +157,9 @@ pub enum EngineTask {
     BlinkTypewriterCursor,
     /// Change the permanent zoom to the given value
     Zoom(f64),
+    /// A stroke raster for the audience window, made off the UI thread.
+    #[cfg(feature = "ui")]
+    AudienceRaster(crate::store::raster_cache::Rasterized),
     /// Indicates that the application is quitting. Sent to quit the handler which receives the tasks.
     Quit,
 }
@@ -198,6 +205,9 @@ pub struct Engine {
     // Magnified writing panel, not part of the document
     #[serde(skip)]
     pub zoom_window: ZoomWindow,
+    // Screenless tablet mapping, not part of the document
+    #[serde(skip)]
+    pub tablet: Tablet,
     // Audience view of the same store, not part of the document
     #[serde(skip)]
     pub presentation: Presentation,
@@ -224,6 +234,13 @@ pub struct Engine {
     #[cfg(feature = "ui")]
     #[serde(skip)]
     origin_indicator_rendernode: Option<gtk4::gsk::RenderNode>,
+    // Stroke rasters for the views without per-stroke renderings
+    #[cfg(feature = "ui")]
+    #[serde(skip)]
+    audience_rasters: RasterCache,
+    #[cfg(feature = "ui")]
+    #[serde(skip)]
+    zoom_rasters: RasterCache,
 }
 
 impl Default for Engine {
@@ -237,6 +254,7 @@ impl Default for Engine {
             camera: Camera::default(),
             penholder: PenHolder::default(),
             zoom_window: ZoomWindow::default(),
+            tablet: Tablet::default(),
             presentation: Presentation::default(),
 
             #[cfg(feature = "ui")]
@@ -250,6 +268,10 @@ impl Default for Engine {
             origin_indicator_image: None,
             #[cfg(feature = "ui")]
             origin_indicator_rendernode: None,
+            #[cfg(feature = "ui")]
+            audience_rasters: RasterCache::in_background(),
+            #[cfg(feature = "ui")]
+            zoom_rasters: RasterCache::default(),
         }
     }
 }
@@ -480,6 +502,11 @@ impl Engine {
                 widget_flags |= self.doc_resize_autoexpand()
                     | self.background_rendering_regenerate()
                     | self.update_rendering_current_viewport();
+            }
+            #[cfg(feature = "ui")]
+            EngineTask::AudienceRaster(rasterized) => {
+                self.audience_rasters.accept(rasterized);
+                widget_flags.redraw = true;
             }
             EngineTask::Quit => {
                 widget_flags |= self.set_active(false);
