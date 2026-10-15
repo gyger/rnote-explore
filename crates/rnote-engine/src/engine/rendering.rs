@@ -185,6 +185,8 @@ impl Engine {
             .draw_strokes_to_gtk_snapshot(snapshot, doc_bounds, viewport);
         self.zoom_window
             .draw_box_to_gtk_snapshot(snapshot, &self.camera);
+        self.tablet
+            .draw_hover_to_gtk_snapshot(snapshot, &self.camera);
         snapshot.restore();
         /*
                let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(surface_bounds));
