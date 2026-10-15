@@ -336,6 +336,9 @@ impl RnAppWindow {
             let window = RnPresentationWindow::new();
             window.set_application(self.application().as_ref());
 
+            // Shortcuts pressed on the audience window run the main window's actions.
+            window.insert_action_group("win", Some(self));
+
             // Closing the window switches the toggle off.
             window.connect_close_request(clone!(
                 #[weak(rename_to=appwindow)]
