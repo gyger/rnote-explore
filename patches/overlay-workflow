@@ -1,7 +1,7 @@
-Bottom: f85d380fb27568dc19e6b5fd7964348c8ddce74d
-Top:    bd6d8bfd670b4ec94e358ac766e83912a18c0223
+Bottom: 63503837000e70f3ddd79b87ea259a2d2256f840
+Top:    dd36ea15cf15ef949c290411d62e0d1d321e1078
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-09-27 12:07:52 +0200
+Date:   2026-10-15 10:04:01 +0200
 
 Add StGit overlay workflow
 

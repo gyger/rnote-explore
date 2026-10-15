@@ -1,11 +1,12 @@
 {
   "version": 5,
-  "prev": "d57ef76739b266d9afa6b63c042a2b180c04c0c2",
-  "head": "11aa6eb4c9d479aca2252cdd89abd38c194fed68",
-  "applied": [],
-  "unapplied": [
+  "prev": "a2b78c75e21490677ffbc78dc44e7258a0e0a2e6",
+  "head": "f377c7da6a6dbc84dcf90569ac297f3e0717f34b",
+  "applied": [
     "overlay-workflow",
-    "windows-installer-ci",
+    "windows-installer-ci"
+  ],
+  "unapplied": [
     "windows-defender-warmup",
     "zoom-window",
     "screen-ratio-formats",
@@ -18,7 +19,7 @@
       "oid": "e849e6cdea18873cf8a2b250b7d2ff12f4b0419f"
     },
     "overlay-workflow": {
-      "oid": "a836ea86e85338f0496b1659f55194fb28457b3c"
+      "oid": "00bdceb11239980ccde4f2cf8cdb1b0fe82d90a6"
     },
     "projector-tablet": {
       "oid": "32fbe3931c8c9f00e102c43f9c3655244beafb5d"
@@ -30,7 +31,7 @@
       "oid": "130707f6363048cb292e73aa9ef44b9ab9aac1b5"
     },
     "windows-installer-ci": {
-      "oid": "c5bdad89c7ac0cb326ff441333a1f46d000881eb"
+      "oid": "f377c7da6a6dbc84dcf90569ac297f3e0717f34b"
     },
     "zoom-window": {
       "oid": "cf715471ed350df41365c618588e39a6657b4952"
