@@ -1,0 +1,38 @@
+Bottom: e6d317c1588f27c1f0951911c1e8f7a465c14643
+Top:    e6d317c1588f27c1f0951911c1e8f7a465c14643
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-10-15 09:50:35 +0200
+
+Write on the projector with a screenless tablet
+
+Purpose: lecture with a screenless pen tablet (Windows Ink). The tablet
+is mapped to the projector monitor by Windows or the driver; pen input
+on the audience window writes onto the page shown there, 1:1.
+
+Behaviour:
+- Stylus only; mouse and touch on the projector are ignored.
+- Strokes start on the page only, the letterbox is a dead zone; a
+  started stroke may leave the page.
+- No input while blanked or frozen: the audience would not see it.
+  With Lock Page, ink goes onto the locked page.
+- A hover ring marks the pen on the projector and the main canvas, the
+  only cue a screenless tablet gives. The system cursor is hidden on
+  the projector.
+- The zoom box is not involved; it stays for pen input on the laptop.
+
+Approach:
+- Engine: Tablet (crates/rnote-engine/src/tablet.rs) holds hover and
+  the dead-zone filter; engine/tablet.rs maps the audience window via
+  the inverse audience camera and feeds the pens directly (no box
+  drag). The audience window is no longer a passive widget: it gets
+  the main canvas' input pipeline through InputSurface::Audience.
+- Speed: projector and zoom panel drew every stroke immediate per
+  frame, PDF slides rasterized from SVG each time. Cost grew with the
+  ink and starved the main window (frames every ~180 ms while writing
+  on the projector). store/raster_cache.rs keeps per-stroke rasters
+  per view, valid while the store's Arc is unchanged: the store edits
+  strokes copy-on-write, so a held Arc never changes in place. Strokes
+  being drawn (unique Arc) stay immediate. Both windows now ~60 fps.
+
+Constraints: builds on dual-screen. A very long stroke still slows the
+main window while drawn; accepted. No file format change.
