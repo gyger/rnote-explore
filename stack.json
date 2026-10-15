@@ -1,13 +1,12 @@
 {
   "version": 5,
-  "prev": "461b42eb0b8e235f7b1364eac43ad7675c16acad",
-  "head": "86180fc6e0a2d72bf51fa6b1422404041582bf77",
+  "prev": "e19d493d8c45863e808e32967c1aafbaead5a8a7",
+  "head": "367a614989627f2cac9f0c6710edbc942747b69d",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
-    "windows-shortcut-home",
-    "refresh-temp"
+    "windows-shortcut-home"
   ],
   "unapplied": [
     "zoom-window",
@@ -26,9 +25,6 @@
     "projector-tablet": {
       "oid": "4c85c9ae83d991757e23b3188ccba3d6ac9b73fa"
     },
-    "refresh-temp": {
-      "oid": "86180fc6e0a2d72bf51fa6b1422404041582bf77"
-    },
     "screen-ratio-formats": {
       "oid": "d8ac6e71c1aa5ca271833b024f42d7f1dd732649"
     },
@@ -39,7 +35,7 @@
       "oid": "52dd282119a52321bc056a67c48dfa8a9a82235d"
     },
     "windows-shortcut-home": {
-      "oid": "e6df77266ee849ee09a1a4cfa747beccb0172b23"
+      "oid": "367a614989627f2cac9f0c6710edbc942747b69d"
     },
     "zoom-window": {
       "oid": "0a4219b20d6453e4d021de9bd05e92a4c3feaed5"
