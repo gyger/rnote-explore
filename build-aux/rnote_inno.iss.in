@@ -101,8 +101,11 @@ Root: HKA; Subkey: "Software\Classes\{#MyAppAssocKey}\shell\open\command"; Value
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".myp"; ValueData: ""
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon
+; Start in the user's home, not Program Files. Windows expands the variable
+; at launch, so each user of an all-users install gets their own home.
+#define ShortcutWorkDir "%USERPROFILE%"
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; WorkingDir: "{#ShortcutWorkDir}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\{#MyAppExeName}"; WorkingDir: "{#ShortcutWorkDir}"; Tasks: desktopicon
 
 [Run]
 ; Run once so Defender's first-execution scan happens inside the progress bar,
