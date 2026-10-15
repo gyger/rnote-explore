@@ -22,6 +22,8 @@ pub(crate) enum InputSurface<'a> {
     Canvas,
     /// The zoom window panel widget.
     ZoomWindow(&'a gtk4::Widget),
+    /// The audience window canvas, for a tablet mapped to the projector.
+    Audience(&'a gtk4::Widget),
 }
 
 /// Handles a pointer controller event.
@@ -566,6 +568,9 @@ fn surface_target<'a>(
                 .transform()
                 .inverse(),
         ),
+        InputSurface::Audience(widget) => {
+            (widget, canvas.engine_ref().audience_input_transform())
+        }
     }
 }
 
@@ -582,5 +587,8 @@ fn dispatch_pen_event(
         InputSurface::ZoomWindow(_) => canvas
             .engine_mut()
             .handle_zoom_window_pen_event(event, pen_mode, now),
+        InputSurface::Audience(_) => canvas
+            .engine_mut()
+            .handle_audience_pen_event(event, pen_mode, now),
     }
 }

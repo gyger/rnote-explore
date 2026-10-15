@@ -66,12 +66,9 @@ impl Engine {
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
         use gtk4::{graphene, prelude::*};
-        use piet::RenderContext;
-        use rnote_compose::ext::{AabbExt, DAffine2Ext};
 
         let page = self.audience_page();
         let camera = self.presentation.camera_for(page);
-        let doc_bounds = self.document.bounds();
 
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(surface_bounds));
 
@@ -82,28 +79,43 @@ impl Engine {
             return Ok(());
         }
 
-        snapshot.save();
-        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-        self.presentation.draw_paper_to_gtk_snapshot(
-            snapshot,
-            page,
-            &self.document.config.background,
-        );
-        snapshot.restore();
+        // Paper is drawn with the strokes: markers multiply with it.
+        let paper = |snapshot: &gtk4::Snapshot| {
+            snapshot.save();
+            snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+            self.presentation.draw_paper_to_gtk_snapshot(
+                snapshot,
+                page,
+                &self.document.config.background,
+            );
+            snapshot.restore();
+        };
 
-        // Transform on the piet side, so cairo rasterizes at window resolution.
-        let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(surface_bounds));
-        let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
-        piet_cx.transform(camera.transform().to_kurbo());
-        piet_cx.clip(page.to_kurbo_rect());
-        self.store
-            .draw_strokes_immediate(&mut piet_cx, doc_bounds, page, camera.image_scale());
-        piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        self.store.draw_strokes_cached(
+            snapshot,
+            &camera,
+            page,
+            page,
+            &self.audience_rasters,
+            paper,
+        )?;
 
         self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;
+        self.draw_tablet_to_gtk_snapshot(snapshot, &camera);
 
         snapshot.pop();
         Ok(())
+    }
+
+    /// Draw the tablet pen marker.
+    #[cfg(feature = "ui")]
+    fn draw_tablet_to_gtk_snapshot(&self, snapshot: &gtk4::Snapshot, camera: &Camera) {
+        use gtk4::prelude::*;
+
+        snapshot.save();
+        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+        self.tablet.draw_hover_to_gtk_snapshot(snapshot, camera);
+        snapshot.restore();
     }
 
     /// Draw the laser pointer, the only pen overlay the audience sees.
