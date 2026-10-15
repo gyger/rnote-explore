@@ -1,9 +1,13 @@
 // Imports
 #[cfg(feature = "ui")]
 use crate::document::Background;
+#[cfg(feature = "ui")]
+use crate::store::raster_cache::Rasters;
 use crate::{Camera, WidgetFlags};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
+#[cfg(feature = "ui")]
+use std::cell::Cell;
 
 /// The audience view: one whole page, seen through a camera of its own.
 ///
@@ -26,6 +30,9 @@ pub struct Presentation {
     /// The page the audience is held on, `None` while the view follows the lecturer.
     locked_page: Option<Aabb>,
     blanked: bool,
+    /// The page last drawn, to stay on while the rasters of the next one are made.
+    #[cfg(feature = "ui")]
+    shown_page: Cell<Option<Aabb>>,
 }
 
 impl Default for Presentation {
@@ -35,6 +42,8 @@ impl Default for Presentation {
             window: Camera::default().with_size(Self::WINDOW_SIZE_DEFAULT),
             locked_page: None,
             blanked: false,
+            #[cfg(feature = "ui")]
+            shown_page: Cell::new(None),
         }
     }
 }
@@ -77,6 +86,24 @@ impl Presentation {
     /// The page the audience sees: the locked one, else the lecturer's.
     pub(crate) fn page_or(&self, lecturer_page: Aabb) -> Aabb {
         self.locked_page.unwrap_or(lecturer_page)
+    }
+
+    /// The page to draw: `wanted` once its `rasters` are ready, until then the page drawn
+    /// before. The rasters are made in the background; drawing the page without them would
+    /// stall every window.
+    ///
+    /// ```text
+    ///  lecturer scrolls to page 2 ─► audience stays on page 1 ─► rasters arrive ─► page 2
+    /// ```
+    #[cfg(feature = "ui")]
+    pub(crate) fn settle_on(&self, wanted: Aabb, rasters: Rasters) -> Aabb {
+        let page = match (rasters, self.shown_page.get()) {
+            (Rasters::Awaited, Some(shown)) => shown,
+            (Rasters::Awaited, None) | (Rasters::Ready, _) => wanted,
+        };
+
+        self.shown_page.set(Some(page));
+        page
     }
 
     /// Set the window size in surface pixels.
@@ -176,6 +203,21 @@ mod tests {
         let margin_top = page.mins[1] - viewport.mins[1];
         let margin_bottom = viewport.maxs[1] - page.maxs[1];
         assert!((margin_top - margin_bottom).abs() < 1e-6);
+    }
+
+    /// Drawing a page without its rasters stalls every window: the audience waits on the old one.
+    #[cfg(feature = "ui")]
+    #[test]
+    fn audience_stays_on_its_page_until_the_next_is_ready() {
+        let presentation = presentation(Vector2::new(1000.0, 1000.0));
+        let first = Aabb::new_positive(Vector2::ZERO, Vector2::new(800.0, 1000.0));
+        let second = Aabb::new_positive(Vector2::new(0.0, 1000.0), Vector2::new(800.0, 2000.0));
+
+        // Nothing shown yet: there is no page to stay on.
+        assert_eq!(presentation.settle_on(first, Rasters::Awaited), first);
+
+        assert_eq!(presentation.settle_on(second, Rasters::Awaited), first);
+        assert_eq!(presentation.settle_on(second, Rasters::Ready), second);
     }
 
     #[test]
