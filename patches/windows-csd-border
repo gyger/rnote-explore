@@ -1,7 +1,7 @@
-Bottom: 685e931958b4297e3b41b66062aab5bd8c8d4a07
-Top:    4ba1bd3737925a9ec75e9254b181f208371ea62a
+Bottom: 83c53e8835912479f8bd7990046a286a8a06ae1c
+Top:    a188f015135edd0841d730b281cc3f5f17456d1a
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-15 14:37:23 +0200
+Date:   2026-10-15 14:37:31 +0200
 
 Paint the Windows window edge instead of black
 

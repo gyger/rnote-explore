@@ -1,34 +1,34 @@
 {
   "version": 5,
-  "prev": "d91715b2165118bac35d912535fe244be2e1d5ea",
-  "head": "7437a1eed0df64bf54d501f4510a49ff4687ae0a",
+  "prev": "cc1fca27220e5a1d161bbb1df2690782abe01994",
+  "head": "5118a396256802cc64c230b9a9134691ef8fbf85",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
+    "windows-csd-border",
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen",
-    "projector-tablet",
-    "windows-csd-border"
+    "projector-tablet"
   ],
   "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
-      "oid": "7f8c887d6b301f2690b50894a024c2cbb27ed686"
+      "oid": "5aed5b0e02a0473b13daa6643d7b50a324a26bde"
     },
     "overlay-workflow": {
       "oid": "d13aaeb1d8ca97dbb9d707b7581381ee8af22f90"
     },
     "projector-tablet": {
-      "oid": "89670116da549583b2ba5596401a3a30e2af1402"
+      "oid": "5118a396256802cc64c230b9a9134691ef8fbf85"
     },
     "screen-ratio-formats": {
-      "oid": "373bc4782728358c86fec726ac976c94cc8bba9b"
+      "oid": "5bffff5fa023043a3d8281296cdc7e6e70b3c90d"
     },
     "windows-csd-border": {
-      "oid": "7437a1eed0df64bf54d501f4510a49ff4687ae0a"
+      "oid": "3a886b561ce473fab0f2489483a3c1425920dc40"
     },
     "windows-defender-warmup": {
       "oid": "a10a73d41f9e3508a12f276ecdf78a1ec8a97755"
@@ -37,7 +37,7 @@
       "oid": "52dd282119a52321bc056a67c48dfa8a9a82235d"
     },
     "zoom-window": {
-      "oid": "5ad851986fd0e5171b85e41870c9d8deefbce523"
+      "oid": "7b15b1e37528170d5b3f89cccc8891c2dbb7e769"
     }
   }
 }
