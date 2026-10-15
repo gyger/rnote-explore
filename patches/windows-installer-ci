@@ -1,7 +1,7 @@
 Bottom: dd36ea15cf15ef949c290411d62e0d1d321e1078
 Top:    771bc704fdb73c5f5d4b85403a58a43ed2ede8ab
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-15 10:04:22 +0200
+Date:   2026-10-15 10:05:28 +0200
 
 Build an unofficial Windows installer from a tag
 
@@ -9,7 +9,7 @@ Purpose: a Windows installer of the overlay at one fixed public URL
 that nobody can mistake for an official Rnote release, and that
 installs beside the official Rnote instead of replacing it.
 
-Approach: upstream's release-windows.yml also runs on the
+Approach: upstream's build_win_installer.yml also runs on the
 overlay-build tag (git overlay-build), so toolchain and action updates
 arrive with every rebase. Overlay steps configure the build as
 'win-installer-identity=overlay' (own Inno AppId, installed as
@@ -18,7 +18,7 @@ dialog, and upload the installer to one prerelease on that tag,
 titled and described as unofficial with a link to upstream's releases.
 
 Constraints: on a fork the release and dispatch paths of
-release-windows.yml and dist.yml never run, so no general-release
+build_win_installer.yml and dist.yml never run, so no general-release
 installer or source archive is built there. Upstream behaviour and the
 official installer are unchanged. 'just configure' interpolates
 unquoted, so version-extra stays free of spaces and parentheses.
