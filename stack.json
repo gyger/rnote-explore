@@ -1,11 +1,9 @@
 {
   "version": 5,
-  "prev": "e124c329a3cc1e33f371db9dab0afb0e5c005e44",
-  "head": "d13aaeb1d8ca97dbb9d707b7581381ee8af22f90",
+  "prev": "de46f079ba3f7386c9cfe60cf43cac63e3689aba",
+  "head": "89670116da549583b2ba5596401a3a30e2af1402",
   "applied": [
-    "overlay-workflow"
-  ],
-  "unapplied": [
+    "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "zoom-window",
@@ -13,28 +11,29 @@
     "dual-screen",
     "projector-tablet"
   ],
+  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
-      "oid": "182be7ccc182715dbdbbe897b8797ff311070c19"
+      "oid": "7f8c887d6b301f2690b50894a024c2cbb27ed686"
     },
     "overlay-workflow": {
       "oid": "d13aaeb1d8ca97dbb9d707b7581381ee8af22f90"
     },
     "projector-tablet": {
-      "oid": "489e0f5af20623b6c952df5b2f0024e58c3cf511"
+      "oid": "89670116da549583b2ba5596401a3a30e2af1402"
     },
     "screen-ratio-formats": {
-      "oid": "a2d35d36bfe1557cabac9dfe84d16639f96d373a"
+      "oid": "373bc4782728358c86fec726ac976c94cc8bba9b"
     },
     "windows-defender-warmup": {
-      "oid": "05b4f705d7755f6ec20edc63f15ae92e86f1286c"
+      "oid": "a10a73d41f9e3508a12f276ecdf78a1ec8a97755"
     },
     "windows-installer-ci": {
-      "oid": "072b6704031cd3d300a5a66d7910c2e4de84fdb7"
+      "oid": "52dd282119a52321bc056a67c48dfa8a9a82235d"
     },
     "zoom-window": {
-      "oid": "e4762496fa6ffad1cdc362891bfb9c18488dcee2"
+      "oid": "5ad851986fd0e5171b85e41870c9d8deefbce523"
     }
   }
 }
