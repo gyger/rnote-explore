@@ -1,6 +1,8 @@
 // Modules
 pub mod chrono_comp;
 pub mod keytree;
+#[cfg(feature = "ui")]
+pub(crate) mod raster_cache;
 pub mod render_comp;
 pub mod selection_comp;
 pub mod stroke_comp;

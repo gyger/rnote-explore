@@ -66,12 +66,6 @@ impl Engine {
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
         use gtk4::{graphene, prelude::*};
-        use piet::RenderContext;
-        use rnote_compose::ext::{AabbExt, DAffine2Ext};
-
-        let page = self.audience_page();
-        let camera = self.presentation.camera_for(page);
-        let doc_bounds = self.document.bounds();
 
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(surface_bounds));
 
@@ -82,28 +76,95 @@ impl Engine {
             return Ok(());
         }
 
-        snapshot.save();
-        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-        self.presentation.draw_paper_to_gtk_snapshot(
-            snapshot,
-            page,
-            &self.document.config.background,
-        );
-        snapshot.restore();
+        // Rasters are made in the background: the audience stays on its page until the
+        // wanted one has its rasters.
+        let wanted = self.audience_page();
+        let rasters = self.request_audience_rasters(wanted);
+        let page = self.presentation.settle_on(wanted, rasters);
+        let camera = self.presentation.camera_for(page);
 
-        // Transform on the piet side, so cairo rasterizes at window resolution.
-        let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(surface_bounds));
-        let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
-        piet_cx.transform(camera.transform().to_kurbo());
-        piet_cx.clip(page.to_kurbo_rect());
-        self.store
-            .draw_strokes_immediate(&mut piet_cx, doc_bounds, page, camera.image_scale());
-        piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        // Like the margin around the main canvas' viewport: ready before it scrolls in.
+        for beside in self.pages_beside(wanted) {
+            let _ = self.request_audience_rasters(beside);
+        }
+
+        // Paper is drawn with the strokes: markers multiply with it.
+        let paper = |snapshot: &gtk4::Snapshot| {
+            snapshot.save();
+            snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+            self.presentation.draw_paper_to_gtk_snapshot(
+                snapshot,
+                page,
+                &self.document.config.background,
+            );
+            snapshot.restore();
+        };
+
+        self.store.draw_strokes_cached(
+            snapshot,
+            &camera,
+            page,
+            page,
+            &self.audience_rasters,
+            self.penholder.current_pen_progress(),
+            paper,
+        )?;
 
         self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;
+        self.draw_tablet_to_gtk_snapshot(snapshot, &camera);
 
         snapshot.pop();
         Ok(())
+    }
+
+    /// Order the rasters the audience needs to see `page`.
+    #[cfg(feature = "ui")]
+    fn request_audience_rasters(&self, page: Aabb) -> crate::store::raster_cache::Rasters {
+        self.store.request_rasters(
+            &self.presentation.camera_for(page),
+            page,
+            &self.audience_rasters,
+            self.penholder.current_pen_progress(),
+            &self.tasks_tx,
+        )
+    }
+
+    /// The pages above and below `page` in the document: where scrolling leads next.
+    ///
+    /// Placed on the page grid like `lecturer_page`, not shifted from `page`: a raster made
+    /// ahead fits only the exact page, and `row * height + height` can round differently
+    /// than `(row + 1) * height`.
+    #[cfg(feature = "ui")]
+    fn pages_beside(&self, page: Aabb) -> impl Iterator<Item = Aabb> {
+        use p2d::bounding_volume::BoundingVolume;
+
+        const ABOVE: f64 = -1.0;
+        const BELOW: f64 = 1.0;
+        let doc_bounds = self.document.bounds();
+        let page_size = self.document.config.format.size();
+        // No grid without a page size: then there is no page beside.
+        let on_grid = page_size[0] > 0.0 && page_size[1] > 0.0;
+        let cell = (page.mins / page_size).round();
+
+        [ABOVE, BELOW]
+            .into_iter()
+            .filter(move |_| on_grid)
+            .map(move |side| {
+                let mins = (cell + Vector2::new(0.0, side)) * page_size;
+                Aabb::new(mins, mins + page_size)
+            })
+            .filter(move |beside| doc_bounds.intersects(beside))
+    }
+
+    /// Draw the tablet pen marker.
+    #[cfg(feature = "ui")]
+    fn draw_tablet_to_gtk_snapshot(&self, snapshot: &gtk4::Snapshot, camera: &Camera) {
+        use gtk4::prelude::*;
+
+        snapshot.save();
+        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+        self.tablet.draw_hover_to_gtk_snapshot(snapshot, camera);
+        snapshot.restore();
     }
 
     /// Draw the laser pointer, the only pen overlay the audience sees.
@@ -155,6 +216,31 @@ mod tests {
         let _ = engine.camera.set_viewport_center(page_size * 0.5);
 
         assert_eq!(engine.lecturer_page().mins, Vector2::ZERO);
+    }
+
+    /// A raster made ahead is only used if its page is exactly the one the audience gets.
+    #[cfg(feature = "ui")]
+    #[test]
+    fn pages_beside_are_the_pages_scrolling_reaches() {
+        const PAGES: usize = 40;
+        // A4 at 96 dpi: `row * height + height` is not always `(row + 1) * height`.
+        const PAGE_HEIGHT: f64 = 1122.5197;
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        engine.document.config.format.set_height(PAGE_HEIGHT);
+        let page_size = engine.document.config.format.size();
+        engine.document.height = page_size[1] * PAGES as f64;
+        let mut page_at = |row: usize| {
+            let center = Vector2::new(page_size[0] * 0.5, page_size[1] * (row as f64 + 0.5));
+            let _ = engine.camera.set_viewport_center(center);
+            engine.audience_page()
+        };
+        let pages: Vec<Aabb> = (0..PAGES).map(&mut page_at).collect();
+
+        for row in 1..PAGES - 1 {
+            let beside: Vec<Aabb> = engine.pages_beside(pages[row]).collect();
+            assert_eq!(beside, vec![pages[row - 1], pages[row + 1]], "row {row}");
+        }
     }
 
     #[test]
