@@ -37,7 +37,7 @@ stg refresh                   # record the resolution in the current patch
 stg push --all                # continue with the remaining patches
 ```
 
-Then verify the build (on Windows from an MSYS2 MinGW64 shell, see
+Then verify the build (on Windows from an MSYS2 UCRT64 shell, see
 `just prerequisites-win`):
 
 ```bash
@@ -59,7 +59,7 @@ Rnote-specific pitfalls:
 - **Translations.** Patches don't touch `crates/rnote-ui/po/`. Upstream
   regenerates `rnote.pot`; new strings reach it from there.
 - **Workflows.** `windows-installer-ci` hooks into upstream's
-  `release-windows.yml` and `dist.yml`. Keep their guards when resolving
+  `build_win_installer.yml` and `dist.yml`. Keep their guards when resolving
   conflicts there: a fork must never build a general release.
 
 ## Patches are intentions, not diffs
@@ -164,7 +164,7 @@ thanks to `--atomic` the branch isn't updated either.
 
 GitHub builds the Windows installer for the commit tagged
 `overlay-build` (patch `windows-installer-ci`, upstream's
-`release-windows.yml`), and only then. To build the published overlay,
+`build_win_installer.yml`), and only then. To build the published overlay,
 move the tag and push it:
 
 ```bash
