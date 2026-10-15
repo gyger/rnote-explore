@@ -1,22 +1,44 @@
 // Imports
 use crate::RnCanvas;
-use gtk4::{Widget, gdk, glib, graphene, prelude::*, subclass::prelude::*};
+use crate::canvas::{InputSurface, handle_pointer_controller_event};
+use gtk4::{
+    EventControllerLegacy, PropagationPhase, Widget, gdk, glib, glib::clone, graphene, prelude::*,
+    subclass::prelude::*,
+};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::ext::AabbExt;
+use rnote_compose::penevent::PenState;
 use rnote_engine::ext::GrapheneRectExt;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use tracing::error;
 
 mod imp {
     use super::*;
 
-    /// The audience view: the followed canvas through the audience camera, no input.
-    #[derive(Debug, Default)]
+    /// The audience view: the followed canvas through the audience camera. Takes stylus input,
+    /// for a screenless tablet mapped to the projector.
+    #[derive(Debug)]
     pub(crate) struct RnPresentationCanvas {
         pub(crate) canvas: glib::WeakRef<RnCanvas>,
         /// What the audience saw when the view was frozen.
         pub(crate) frozen_still: RefCell<Option<gdk::Texture>>,
+        pub(crate) pointer_controller: EventControllerLegacy,
+    }
+
+    impl Default for RnPresentationCanvas {
+        fn default() -> Self {
+            let pointer_controller = EventControllerLegacy::builder()
+                .name("presentation_pointer_controller")
+                .propagation_phase(PropagationPhase::Bubble)
+                .build();
+
+            Self {
+                canvas: glib::WeakRef::new(),
+                frozen_still: RefCell::new(None),
+                pointer_controller,
+            }
+        }
     }
 
     #[glib::object_subclass]
@@ -34,6 +56,10 @@ mod imp {
             obj.add_css_class("view");
             obj.set_hexpand(true);
             obj.set_vexpand(true);
+            // The hover marker shows the pen; the system cursor would be a second one.
+            obj.set_cursor_from_name(Some("none"));
+            obj.add_controller(self.pointer_controller.clone());
+            self.setup_input();
         }
 
         fn dispose(&self) {
@@ -75,6 +101,52 @@ mod imp {
             {
                 error!("Snapshot presentation canvas failed, Err: {e:?}");
             }
+        }
+    }
+
+    impl RnPresentationCanvas {
+        fn setup_input(&self) {
+            let obj = self.obj();
+
+            // Same pipeline as the main canvas, only the target widget and the camera differ.
+            let pen_state = Cell::new(PenState::Up);
+            let stylus_active = Cell::new(false);
+            self.pointer_controller.connect_event(clone!(
+                #[weak(rename_to=presentationcanvas)]
+                obj,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_, event| {
+                    // Stylus only: a stray mouse click on the projector must not write.
+                    // A frozen still would hide the ink.
+                    let frozen = presentationcanvas.imp().frozen_still.borrow().is_some();
+                    if frozen || event.device_tool().is_none() {
+                        return glib::Propagation::Proceed;
+                    }
+                    let Some(canvas) = presentationcanvas.canvas() else {
+                        return glib::Propagation::Proceed;
+                    };
+
+                    let (propagation, new_state, new_stylus_active) =
+                        handle_pointer_controller_event(
+                            &canvas,
+                            event,
+                            pen_state.get(),
+                            stylus_active.get(),
+                            InputSurface::Audience(presentationcanvas.upcast_ref()),
+                        );
+                    pen_state.set(new_state);
+                    stylus_active.set(new_stylus_active);
+
+                    // The pen left the tablet: drop the hover marker.
+                    if event.event_type() == gdk::EventType::ProximityOut {
+                        let _ = canvas.engine_mut().tablet_clear();
+                        canvas.queue_draw();
+                        presentationcanvas.queue_draw();
+                    }
+                    propagation
+                }
+            ));
         }
     }
 }
