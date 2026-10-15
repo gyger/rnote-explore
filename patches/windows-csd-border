@@ -1,0 +1,17 @@
+Bottom: 685e931958b4297e3b41b66062aab5bd8c8d4a07
+Top:    685e931958b4297e3b41b66062aab5bd8c8d4a07
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-10-15 14:37:23 +0200
+
+Paint the Windows window edge instead of black
+
+Purpose: on Windows the main window shows a ~3 px black frame.
+Upstream forces DirectComposition (GDK_DEBUG=dcomp), which draws the
+transparent area around a CSD window black; style-win.css hides it
+with margin: -9px, but GTK keeps a 12 px resize area, so 3 px stay.
+
+Approach: keep the -9 px and paint the leftover 3 px with a solid
+spread shadow in the border colour. Removing it (margin: -12px) kills
+the black, but also resizing from the right and bottom edges.
+
+Constraints: Windows only (style-win.css). Upstream candidate.
