@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "bc2e3947b32d86878e0b452432b487ff0fb2d600",
-  "head": "6aec7576a8d022b96e4ac1599705e14d635b49f5",
+  "prev": "0e35769310aba33ff43297dc6dc502a4bd8c27e1",
+  "head": "d33700c87ef41d7a88eb3e92cb8acfd7d81c8f31",
   "applied": [
     "overlay-workflow",
     "windows-msys2-packages",
@@ -10,7 +10,8 @@
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen",
-    "projector-tablet"
+    "projector-tablet",
+    "refresh-temp"
   ],
   "unapplied": [],
   "hidden": [],
@@ -23,6 +24,9 @@
     },
     "projector-tablet": {
       "oid": "6aec7576a8d022b96e4ac1599705e14d635b49f5"
+    },
+    "refresh-temp": {
+      "oid": "d33700c87ef41d7a88eb3e92cb8acfd7d81c8f31"
     },
     "screen-ratio-formats": {
       "oid": "f3e6707a5177816a1a5179d69454c4db70333fd8"
