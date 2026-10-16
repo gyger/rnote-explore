@@ -17,10 +17,22 @@ pub(crate) use typewriterpage::RnTypewriterPage;
 
 // Imports
 use crate::RnAppWindow;
+use gettextrs::gettext;
 use gtk4::{
     CompositeTemplate, Stack, StackPage, Widget, glib, glib::clone, prelude::*,
     subclass::prelude::*,
 };
+
+/// What the slide pause button does when pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SlidePauseButton {
+    Pause,
+    Play,
+}
+
+/// Icons of the slide pause button: pause while playing, play while held.
+const SLIDE_PAUSE_ICON: &str = "slide-pause-symbolic";
+const SLIDE_PLAY_ICON: &str = "slide-play-symbolic";
 
 mod imp {
     use super::*;
@@ -54,6 +66,8 @@ mod imp {
         pub(crate) tools_stackpage: TemplateChild<StackPage>,
         #[template_child]
         pub(crate) tools_page: TemplateChild<RnToolsPage>,
+        #[template_child]
+        pub(crate) slide_pause_button: TemplateChild<gtk4::Button>,
     }
 
     #[glib::object_subclass]
@@ -125,6 +139,28 @@ impl RnPensSideBar {
 
     pub(crate) fn selector_page(&self) -> RnSelectorPage {
         self.imp().selector_page.get()
+    }
+
+    /// Show what the slide pause button does next: Pause while playing, Play while held.
+    pub(crate) fn set_slide_pause_button(&self, mode: SlidePauseButton) {
+        let button = self.imp().slide_pause_button.get();
+        let (icon, tooltip) = match mode {
+            SlidePauseButton::Pause => (
+                SLIDE_PAUSE_ICON,
+                gettext("Pause Slide: hold the animation at the current frame"),
+            ),
+            SlidePauseButton::Play => (
+                SLIDE_PLAY_ICON,
+                gettext("Play Slide: let the held animation play on"),
+            ),
+        };
+
+        // Called on every redraw while a slide plays; only touch the button on a change.
+        if button.icon_name().as_deref() == Some(icon) {
+            return;
+        }
+        button.set_icon_name(icon);
+        button.set_tooltip_text(Some(&tooltip));
     }
 
     pub(crate) fn tools_page(&self) -> RnToolsPage {
