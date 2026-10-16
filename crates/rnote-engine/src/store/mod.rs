@@ -11,6 +11,7 @@ pub mod trash_comp;
 // Re-exports
 pub use chrono_comp::ChronoComponent;
 use keytree::KeyTree;
+pub(crate) use render_comp::LiveStrokes;
 pub use render_comp::RenderComponent;
 pub use selection_comp::SelectionComponent;
 pub use trash_comp::TrashComponent;
