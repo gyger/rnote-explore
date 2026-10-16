@@ -8,7 +8,7 @@ pub(crate) use presentationcanvas::RnPresentationCanvas;
 use crate::RnCanvas;
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
-use gtk4::{gdk, glib};
+use gtk4::{gdk, glib, glib::clone};
 use std::cell::Cell;
 
 mod imp {
@@ -47,6 +47,31 @@ mod imp {
             // Closing the window only hides it, the toggle owns its lifetime.
             obj.set_hide_on_close(true);
             obj.set_content(Some(&self.presentationcanvas));
+
+            // Space steps through slides here too; the window runs the main window's actions.
+            let keys = gtk4::EventControllerKey::new();
+            keys.connect_key_pressed(clone!(
+                #[weak]
+                obj,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_, key, _, modifiers| {
+                    let typed = modifiers
+                        .intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK);
+                    if key != gdk::Key::space || typed {
+                        return glib::Propagation::Proceed;
+                    }
+
+                    let action = if modifiers.contains(gdk::ModifierType::SHIFT_MASK) {
+                        "win.slide-back"
+                    } else {
+                        "win.slide-forward"
+                    };
+                    let _ = obj.activate_action(action, None);
+                    glib::Propagation::Stop
+                }
+            ));
+            obj.add_controller(keys);
         }
     }
 

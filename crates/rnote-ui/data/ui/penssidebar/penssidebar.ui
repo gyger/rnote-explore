@@ -147,6 +147,29 @@
                     </style>
                   </object>
                 </child>
+                <child>
+                  <object class="GtkSeparator" />
+                </child>
+                <child>
+                  <object class="GtkButton">
+                    <property name="icon_name">slide-back-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Slide Back: rewind the slide, at its start go back a page (Shift+Space, Page Up)</property>
+                    <property name="action-name">win.slide-back</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton">
+                    <property name="icon_name">slide-forward-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Slide Forward: play, finish, then go on to the next page (Space, Page Down)</property>
+                    <property name="action-name">win.slide-forward</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
               </object>
             </property>
           </object>

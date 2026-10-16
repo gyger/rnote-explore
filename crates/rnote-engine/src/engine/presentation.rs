@@ -88,8 +88,14 @@ impl Engine {
         );
         snapshot.restore();
 
-        self.store
-            .draw_strokes_cached(snapshot, &camera, page, page, &self.audience_rasters)?;
+        self.store.draw_strokes_cached(
+            snapshot,
+            &camera,
+            page,
+            page,
+            &self.audience_rasters,
+            &self.slides.view(crate::manimslide::SlideView::Audience),
+        )?;
 
         self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;
         self.draw_tablet_to_gtk_snapshot(snapshot, &camera);

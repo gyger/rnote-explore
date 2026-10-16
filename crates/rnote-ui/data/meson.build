@@ -231,6 +231,8 @@ rnote_ui_gresources_icons_files = files(
     'icons/scalable/actions/pen-typewriter-symbolic.svg',
     'icons/scalable/actions/plus-symbolic.svg',
     'icons/scalable/actions/presentation-blank-symbolic.svg',
+    'icons/scalable/actions/slide-back-symbolic.svg',
+    'icons/scalable/actions/slide-forward-symbolic.svg',
     'icons/scalable/actions/presentation-freeze-symbolic.svg',
     'icons/scalable/actions/presentation-lock-page-symbolic.svg',
     'icons/scalable/actions/presentation-symbolic.svg',
