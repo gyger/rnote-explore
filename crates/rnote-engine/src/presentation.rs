@@ -16,6 +16,14 @@ use p2d::math::Vector2;
 ///  └───────────────────────┘         └──────────────────────────┘
 /// ```
 ///
+/// With [AudienceColumn::First] the audience stays on the first page column of the
+/// lecturer's row, so a second column can hold notes the room does not see:
+///
+/// ```text
+///  row 1  [ slide 1 ]  [ notes 1 ]     lecturer anywhere in row 1
+///  row 2  [ slide 2 ]  [ notes 2 ]  ─► audience sees [ slide 1 ]
+/// ```
+///
 /// Only the window geometry is stored. The camera is built per draw by
 /// [`Presentation::camera_for`], so drawing needs no mutable engine access.
 #[derive(Debug)]
@@ -26,6 +34,17 @@ pub struct Presentation {
     /// The page the audience is held on, `None` while the view follows the lecturer.
     locked_page: Option<Aabb>,
     blanked: bool,
+    column: AudienceColumn,
+}
+
+/// Which page column of the lecturer's row the audience sees.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AudienceColumn {
+    /// The lecturer's own page.
+    #[default]
+    Follow,
+    /// The first column (the one starting at x = 0): slides, while notes sit beside them.
+    First,
 }
 
 impl Default for Presentation {
@@ -35,6 +54,7 @@ impl Default for Presentation {
             window: Camera::default().with_size(Self::WINDOW_SIZE_DEFAULT),
             locked_page: None,
             blanked: false,
+            column: AudienceColumn::default(),
         }
     }
 }
@@ -74,9 +94,24 @@ impl Presentation {
         redraw()
     }
 
-    /// The page the audience sees: the locked one, else the lecturer's.
+    pub(crate) fn set_column(&mut self, column: AudienceColumn) -> WidgetFlags {
+        self.column = column;
+        redraw()
+    }
+
+    /// The page the audience sees: the locked one, else the lecturer's, moved to the
+    /// first column if so set.
     pub(crate) fn page_or(&self, lecturer_page: Aabb) -> Aabb {
-        self.locked_page.unwrap_or(lecturer_page)
+        if let Some(locked) = self.locked_page {
+            return locked;
+        }
+        match self.column {
+            AudienceColumn::Follow => lecturer_page,
+            AudienceColumn::First => {
+                let shift = Vector2::new(-lecturer_page.mins[0], 0.0);
+                Aabb::new(lecturer_page.mins + shift, lecturer_page.maxs + shift)
+            }
+        }
     }
 
     /// Set the window size in surface pixels.
