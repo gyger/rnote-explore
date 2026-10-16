@@ -60,6 +60,19 @@ mod imp {
             obj.set_cursor_from_name(Some("none"));
             obj.add_controller(self.pointer_controller.clone());
             self.setup_input();
+
+            // A playing slide is redrawn on this window's own frame clock. The redraws the
+            // main window passes on follow its screen's clock, which drifts against the
+            // projector's: now and then a frame would show twice or not at all.
+            obj.add_tick_callback(|presentationcanvas, _frame_clock| {
+                let playing = presentationcanvas
+                    .canvas()
+                    .is_some_and(|canvas| canvas.engine_ref().slides_playing());
+                if playing {
+                    presentationcanvas.queue_draw();
+                }
+                glib::ControlFlow::Continue
+            });
         }
 
         fn dispose(&self) {

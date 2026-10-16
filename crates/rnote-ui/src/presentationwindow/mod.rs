@@ -8,7 +8,9 @@ pub(crate) use presentationcanvas::RnPresentationCanvas;
 use crate::RnCanvas;
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
-use gtk4::{gdk, glib};
+use gtk4::{gdk, glib, glib::clone};
+use rnote_engine::engine::slides::SlideControl;
+use rnote_engine::presentation::AudienceColumn;
 use std::cell::Cell;
 
 mod imp {
@@ -25,6 +27,12 @@ mod imp {
         pub(crate) page_locked: Cell<bool>,
         pub(crate) blanked: Cell<bool>,
         pub(crate) frozen: Cell<bool>,
+        /// The audience stays on the first page column; notes sit in the second.
+        pub(crate) first_column: Cell<bool>,
+        /// Slide controls in the bottom left corner, shown while the pointer is near.
+        pub(crate) slide_controls: gtk4::Revealer,
+        /// Steps while nothing runs, pauses a running animation, plays a paused one on.
+        pub(crate) slide_center_button: gtk4::Button,
     }
 
     #[glib::object_subclass]
@@ -46,13 +54,154 @@ mod imp {
             );
             // Closing the window only hides it, the toggle owns its lifetime.
             obj.set_hide_on_close(true);
-            obj.set_content(Some(&self.presentationcanvas));
+            let overlay = gtk4::Overlay::new();
+            overlay.set_child(Some(&self.presentationcanvas));
+            self.setup_slide_controls(&overlay);
+            obj.set_content(Some(&overlay));
+
+            // Space steps through slides here too; the window runs the main window's actions.
+            let keys = gtk4::EventControllerKey::new();
+            keys.connect_key_pressed(clone!(
+                #[weak]
+                obj,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_, key, _, modifiers| {
+                    let typed = modifiers
+                        .intersects(gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::ALT_MASK);
+                    if key != gdk::Key::space || typed {
+                        return glib::Propagation::Proceed;
+                    }
+
+                    let action = if modifiers.contains(gdk::ModifierType::SHIFT_MASK) {
+                        "win.slide-back"
+                    } else {
+                        "win.slide-forward"
+                    };
+                    let _ = obj.activate_action(action, None);
+                    glib::Propagation::Stop
+                }
+            ));
+            obj.add_controller(keys);
         }
     }
 
     impl WidgetImpl for RnPresentationWindow {}
     impl WindowImpl for RnPresentationWindow {}
     impl AdwWindowImpl for RnPresentationWindow {}
+
+    impl RnPresentationWindow {
+        /// Back, center and forward in the bottom left corner, for a lecturer standing at
+        /// the projector. Hidden from the audience until the pointer comes near; the center
+        /// button steps, or pauses and plays on an animation (see [SlideControl]):
+        ///
+        /// ```text
+        ///  ┌──────────────────────────────────┐
+        ///  │                                  │
+        ///  ├─ near ──────┐                    │
+        ///  │ [◀][▶|⏸][▶] │                    │
+        ///  └─────────────┴────────────────────┘
+        /// ```
+        fn setup_slide_controls(&self, overlay: &gtk4::Overlay) {
+            let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, CONTROLS_SPACING);
+            bar.add_css_class("osd");
+            bar.set_opacity(CONTROLS_OPACITY);
+            // The canvas hides the system cursor behind its hover marker; buttons need it.
+            bar.set_cursor_from_name(Some("default"));
+
+            let back = slide_button(BACK_ICON, BACK_ACTION);
+            back.set_tooltip_text(Some(&gettext("Slide Back")));
+            let center = &self.slide_center_button;
+            setup_slide_button(center);
+            let forward = slide_button(FORWARD_ICON, FORWARD_ACTION);
+            forward.set_tooltip_text(Some(&gettext("Slide Forward")));
+            bar.append(&back);
+            bar.append(center);
+            bar.append(&forward);
+            self.obj().set_slide_control(SlideControl::Next);
+
+            // Pen or laser pointer; GTK highlights the one of the current pen style.
+            bar.append(&gtk4::Separator::new(gtk4::Orientation::Vertical));
+            let pen = pen_style_button(PEN_ICON, PEN_STYLE_BRUSH);
+            pen.set_tooltip_text(Some(&gettext("Pen")));
+            let laser = pen_style_button(LASER_ICON, PEN_STYLE_TOOLS);
+            laser.set_tooltip_text(Some(&gettext("Laser Pointer")));
+            // The tools pen may hold another tool, e.g. zoom: pick the laser too.
+            laser.connect_clicked(|laser| {
+                let _ = laser.activate_action(LASER_TOOL_ACTION, None);
+            });
+            bar.append(&pen);
+            bar.append(&laser);
+
+            let controls = &self.slide_controls;
+            controls.set_child(Some(&bar));
+            controls.set_transition_type(gtk4::RevealerTransitionType::Crossfade);
+            controls.set_halign(gtk4::Align::Start);
+            controls.set_valign(gtk4::Align::End);
+            controls.set_margin_start(CONTROLS_MARGIN);
+            controls.set_margin_bottom(CONTROLS_MARGIN);
+            show_controls(controls, false);
+            overlay.add_overlay(controls);
+
+            // Shown while the pointer is in the corner, hidden when it leaves it.
+            let motion = gtk4::EventControllerMotion::new();
+            motion.connect_motion(clone!(
+                #[weak]
+                overlay,
+                #[weak]
+                controls,
+                move |_, x, y| {
+                    let near = x < NEAR_WIDTH && y > overlay.height() as f64 - NEAR_HEIGHT;
+                    show_controls(&controls, near);
+                }
+            ));
+            motion.connect_leave(clone!(
+                #[weak]
+                controls,
+                move |_| show_controls(&controls, false)
+            ));
+            overlay.add_controller(motion);
+        }
+    }
+
+    /// The corner where the pointer shows the slide controls, in pixels.
+    const NEAR_WIDTH: f64 = 300.0;
+    const NEAR_HEIGHT: f64 = 160.0;
+    const CONTROLS_MARGIN: i32 = 12;
+    const CONTROLS_SPACING: i32 = 0;
+    /// Quiet: the audience looks at the slide, not at the controls.
+    const CONTROLS_OPACITY: f64 = 0.6;
+
+    /// Show or hide the slide controls. Hidden, they take no input: a stylus writing in the
+    /// corner reaches the canvas.
+    fn show_controls(controls: &gtk4::Revealer, shown: bool) {
+        controls.set_reveal_child(shown);
+        controls.set_can_target(shown);
+    }
+
+    /// A toggle for pen style `style`, active while it is the current one.
+    fn pen_style_button(icon: &str, style: &str) -> gtk4::ToggleButton {
+        let button = gtk4::ToggleButton::new();
+        button.set_icon_name(icon);
+        button.set_action_name(Some(PEN_STYLE_ACTION));
+        button.set_action_target_value(Some(&style.to_variant()));
+        setup_slide_button(button.upcast_ref());
+        button
+    }
+
+    fn slide_button(icon: &str, action: &str) -> gtk4::Button {
+        let button = gtk4::Button::from_icon_name(icon);
+        button.set_action_name(Some(action));
+        setup_slide_button(&button);
+        button
+    }
+
+    fn setup_slide_button(button: &gtk4::Button) {
+        button.add_css_class("flat");
+        // Never focused: Space must keep stepping forward, not press the last button clicked.
+        button.set_focusable(false);
+        button.set_focus_on_click(false);
+    }
 }
 
 glib::wrapper! {
@@ -67,6 +216,23 @@ impl Default for RnPresentationWindow {
         Self::new()
     }
 }
+
+/// Slide control icons and the main window's actions they run.
+const BACK_ICON: &str = "slide-back-symbolic";
+const FORWARD_ICON: &str = "slide-forward-symbolic";
+const PAUSE_ICON: &str = "slide-pause-symbolic";
+const PLAY_ICON: &str = "slide-play-symbolic";
+const BACK_ACTION: &str = "win.slide-back";
+const FORWARD_ACTION: &str = "win.slide-forward";
+const PAUSE_ACTION: &str = "win.slide-pause";
+
+/// Pen style controls: the main window's pen style action and its targets.
+const PEN_ICON: &str = "pen-brush-symbolic";
+const LASER_ICON: &str = "pen-tools-laser-symbolic";
+const PEN_STYLE_ACTION: &str = "win.pen-style";
+const PEN_STYLE_BRUSH: &str = "brush";
+const PEN_STYLE_TOOLS: &str = "tools";
+const LASER_TOOL_ACTION: &str = "win.laser-tool";
 
 impl RnPresentationWindow {
     const DEFAULT_WIDTH: i32 = 1280;
@@ -94,6 +260,30 @@ impl RnPresentationWindow {
         self.imp().presentationcanvas.set_frozen(frozen);
     }
 
+    /// Let the center control step, pause or play on, as the slide in view needs.
+    pub(crate) fn set_slide_control(&self, control: SlideControl) {
+        let (icon, action, tooltip) = match control {
+            SlideControl::Next => (FORWARD_ICON, FORWARD_ACTION, gettext("Slide Forward")),
+            SlideControl::Pause => (PAUSE_ICON, PAUSE_ACTION, gettext("Pause Slide")),
+            SlideControl::Play => (PLAY_ICON, PAUSE_ACTION, gettext("Play Slide")),
+        };
+
+        // Called on every redraw while a slide plays; only touch the button on a change.
+        let button = &self.imp().slide_center_button;
+        if button.icon_name().as_deref() == Some(icon) {
+            return;
+        }
+        button.set_icon_name(icon);
+        button.set_action_name(Some(action));
+        button.set_tooltip_text(Some(&tooltip));
+    }
+
+    /// Hold the audience on the first page column of the lecturer's row.
+    pub(crate) fn set_first_column(&self, first_column: bool) {
+        self.imp().first_column.set(first_column);
+        self.push_state();
+    }
+
     /// Show the audience nothing but the letterbox.
     pub(crate) fn set_blanked(&self, blanked: bool) {
         self.imp().blanked.set(blanked);
@@ -110,6 +300,12 @@ impl RnPresentationWindow {
         let mut engine = canvas.engine_mut();
         let _ = engine.presentation_set_page_locked(imp.page_locked.get());
         let _ = engine.presentation_set_blanked(imp.blanked.get());
+        let column = if imp.first_column.get() {
+            AudienceColumn::First
+        } else {
+            AudienceColumn::Follow
+        };
+        let _ = engine.presentation_set_audience_column(column);
         drop(engine);
 
         self.queue_redraw();
