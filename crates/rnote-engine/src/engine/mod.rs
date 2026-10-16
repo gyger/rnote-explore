@@ -5,6 +5,7 @@ pub mod export;
 pub mod import;
 pub mod presentation;
 pub mod rendering;
+pub mod slides;
 pub mod snapshot;
 pub mod strokecontent;
 pub mod tablet;
@@ -23,6 +24,7 @@ pub use strokecontent::StrokeContent;
 // Imports
 use crate::Image;
 use crate::document::Layout;
+use crate::manimslide::SlidePlayer;
 use crate::pens::PenMode;
 use crate::pens::{Pen, PenStyle};
 use crate::presentation::Presentation;
@@ -238,6 +240,9 @@ pub struct Engine {
     #[cfg(feature = "ui")]
     #[serde(skip)]
     zoom_rasters: RasterCache,
+    // Playback of Manim slides; not saved, slides open at their stored time
+    #[serde(skip)]
+    slides: SlidePlayer,
 }
 
 impl Default for Engine {
@@ -269,6 +274,7 @@ impl Default for Engine {
             audience_rasters: RasterCache::default(),
             #[cfg(feature = "ui")]
             zoom_rasters: RasterCache::default(),
+            slides: SlidePlayer::default(),
         }
     }
 }

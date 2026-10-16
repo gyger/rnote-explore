@@ -14,6 +14,7 @@ use rnote_compose::SplitOrder;
 use rnote_compose::penevent::ShortcutKey;
 use rnote_engine::document::format::MeasureUnit;
 use rnote_engine::engine::StrokeContent;
+use rnote_engine::engine::import::NotesColumn;
 use rnote_engine::ext::GraphenePointExt;
 use rnote_engine::pens::PenStyle;
 use rnote_engine::strokes::resize::{ImageSizeOption, Resize};
@@ -110,6 +111,21 @@ impl RnAppWindow {
         self.add_action(&action_print_doc);
         let action_import_file = gio::SimpleAction::new("import-file", None);
         self.add_action(&action_import_file);
+        let action_import_manim_slides = gio::SimpleAction::new("import-manim-slides", None);
+        self.add_action(&action_import_manim_slides);
+        let action_import_manim_slides_notes =
+            gio::SimpleAction::new("import-manim-slides-notes", None);
+        self.add_action(&action_import_manim_slides_notes);
+        let action_update_manim_slides = gio::SimpleAction::new("update-manim-slides", None);
+        self.add_action(&action_update_manim_slides);
+        let action_rerender_manim_slides = gio::SimpleAction::new("rerender-manim-slides", None);
+        self.add_action(&action_rerender_manim_slides);
+        let action_slide_forward = gio::SimpleAction::new("slide-forward", None);
+        self.add_action(&action_slide_forward);
+        let action_slide_back = gio::SimpleAction::new("slide-back", None);
+        self.add_action(&action_slide_back);
+        let action_slide_pause = gio::SimpleAction::new("slide-pause", None);
+        self.add_action(&action_slide_pause);
         let action_export_doc = gio::SimpleAction::new("export-doc", None);
         self.add_action(&action_export_doc);
         let action_export_doc_pages = gio::SimpleAction::new("export-doc-pages", None);
@@ -194,6 +210,10 @@ impl RnAppWindow {
             gio::SimpleAction::new_stateful("presentation-freeze", None, &false.to_variant());
         action_presentation_freeze.set_enabled(false);
         self.add_action(&action_presentation_freeze);
+        let action_presentation_first_column =
+            gio::SimpleAction::new_stateful("presentation-first-column", None, &false.to_variant());
+        action_presentation_first_column.set_enabled(false);
+        self.add_action(&action_presentation_first_column);
         let action_presentation_blank =
             gio::SimpleAction::new_stateful("presentation-blank", None, &false.to_variant());
         action_presentation_blank.set_enabled(false);
@@ -559,7 +579,7 @@ impl RnAppWindow {
         ));
 
         // Audience window toggles
-        let presentation_toggles: [(_, fn(&RnPresentationWindow, bool)); 3] = [
+        let presentation_toggles: [(_, fn(&RnPresentationWindow, bool)); 4] = [
             (
                 &action_presentation_lock_page,
                 RnPresentationWindow::set_page_locked,
@@ -571,6 +591,10 @@ impl RnAppWindow {
             (
                 &action_presentation_blank,
                 RnPresentationWindow::set_blanked,
+            ),
+            (
+                &action_presentation_first_column,
+                RnPresentationWindow::set_first_column,
             ),
         ];
         for (action, apply) in presentation_toggles {
@@ -1110,6 +1134,103 @@ impl RnAppWindow {
             }
         ));
 
+        // Step through Manim slides, e.g. with a presentation clicker, or hold one
+        let slide_steps: [(
+            _,
+            fn(&mut rnote_engine::Engine) -> rnote_engine::WidgetFlags,
+        ); 3] = [
+            (&action_slide_forward, rnote_engine::Engine::slide_forward),
+            (&action_slide_back, rnote_engine::Engine::slide_back),
+            (&action_slide_pause, rnote_engine::Engine::slide_pause),
+        ];
+        for (action, step) in slide_steps {
+            action.connect_activate(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _| {
+                    let Some(canvas) = appwindow.active_tab_canvas() else {
+                        return;
+                    };
+                    let widget_flags = step(&mut canvas.engine_mut());
+                    appwindow.handle_widget_flags(widget_flags, &canvas);
+                }
+            ));
+        }
+
+        // Import Manim slides
+        action_import_manim_slides.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::filedialog_import_manim_scene(
+                            &appwindow,
+                            NotesColumn::Without,
+                        )
+                        .await;
+                    }
+                ));
+            }
+        ));
+        action_import_manim_slides_notes.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::filedialog_import_manim_scene(
+                            &appwindow,
+                            NotesColumn::With,
+                        )
+                        .await;
+                    }
+                ));
+            }
+        ));
+
+        // Update Manim slides from a re-rendered deck
+        action_update_manim_slides.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::update_manim_scenes(
+                            &appwindow,
+                            dialogs::import::Rerender::Changed,
+                        )
+                        .await;
+                    }
+                ));
+            }
+        ));
+
+        // Re-render all Manim slides, changed or not
+        action_rerender_manim_slides.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::update_manim_scenes(
+                            &appwindow,
+                            dialogs::import::Rerender::All,
+                        )
+                        .await;
+                    }
+                ));
+            }
+        ));
+
         // Export document
         action_export_doc.connect_activate(clone!(
             #[weak(rename_to=appwindow)]
@@ -1327,6 +1448,8 @@ impl RnAppWindow {
         app.set_accels_for_action("win.zoom-reset", &["<Ctrl>0", "<Ctrl>KP_0"]);
         app.set_accels_for_action("win.zoom-out", &["<Ctrl>minus", "<Ctrl>KP_Subtract"]);
         app.set_accels_for_action("win.import-file", &["<Ctrl><Shift>i"]);
+        app.set_accels_for_action("win.slide-forward", &["Page_Down"]);
+        app.set_accels_for_action("win.slide-back", &["Page_Up"]);
         app.set_accels_for_action("win.undo", &["<Ctrl>z"]);
         app.set_accels_for_action("win.redo", &["<Ctrl><Shift>z"]);
         app.set_accels_for_action("win.clipboard-copy", &["<Ctrl>c"]);

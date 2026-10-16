@@ -95,6 +95,25 @@
             <attribute name="action">win.import-file</attribute>
           </item>
           <submenu>
+            <attribute name="label" translatable="yes">_Manim Slides</attribute>
+            <item>
+              <attribute name="label" translatable="yes">_Import Scene…</attribute>
+              <attribute name="action">win.import-manim-slides</attribute>
+            </item>
+            <item>
+              <attribute name="label" translatable="yes">Import Scene with _Notes Column…</attribute>
+              <attribute name="action">win.import-manim-slides-notes</attribute>
+            </item>
+            <item>
+              <attribute name="label" translatable="yes">_Update</attribute>
+              <attribute name="action">win.update-manim-slides</attribute>
+            </item>
+            <item>
+              <attribute name="label" translatable="yes">_Re-render All</attribute>
+              <attribute name="action">win.rerender-manim-slides</attribute>
+            </item>
+          </submenu>
+          <submenu>
             <attribute name="label" translatable="yes">_Clipboard</attribute>
             <item>
               <attribute name="label" translatable="yes">_Copy</attribute>
