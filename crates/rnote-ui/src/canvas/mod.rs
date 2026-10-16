@@ -263,6 +263,9 @@ mod imp {
                     if canvas.engine_mut().animation.process_frame() {
                         let optimize_epd = canvas.engine_ref().optimize_epd();
                         canvas.engine_mut().handle_animation_frame();
+                        // Playing slides also show in the zoom and presentation windows.
+                        let widget_flags = canvas.engine_mut().slides_handle_frame();
+                        canvas.emit_handle_widget_flags(widget_flags);
 
                         // if optimize_epd is enabled, we only redraw the canvas
                         // when no follow-up frame has been requested (i.e. the animation is done)
