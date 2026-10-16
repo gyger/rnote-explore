@@ -161,7 +161,10 @@ impl RnCanvas {
     }
 
     /// Loads in Manim slide files (their text) and imports them, one per page from the page in view.
-    pub(crate) async fn load_in_manim_slides(&self, slides: Vec<String>) -> anyhow::Result<()> {
+    pub(crate) async fn load_in_manim_slides(
+        &self,
+        slides: Vec<rnote_engine::engine::import::ManimSlideFile>,
+    ) -> anyhow::Result<()> {
         let strokes_receiver = self.engine_mut().generate_manim_slides(slides);
         let strokes = strokes_receiver.await??;
         let widget_flags = self.engine_mut().import_generated_content(strokes, false);

@@ -69,6 +69,8 @@ enum Clock {
 
 #[derive(Debug)]
 struct Decoded {
+    /// The slide text this was decoded from; an updated or undone slide has another.
+    text: Arc<str>,
     slide: Slide,
     images: SlideImages,
 }
@@ -115,12 +117,18 @@ fn slide_source(stroke: &Stroke) -> Option<&SlideSource> {
 
 impl SlidePlayer {
     fn decoded(&self, key: StrokeKey, source: &SlideSource) -> anyhow::Result<Arc<Decoded>> {
-        if let Some(decoded) = self.decoded.borrow().get(&key) {
+        if let Some(decoded) = self.decoded.borrow().get(&key)
+            && source.is_same_text(&decoded.text)
+        {
             return Ok(Arc::clone(decoded));
         }
 
         let (slide, images) = source.decode()?;
-        let decoded = Arc::new(Decoded { slide, images });
+        let decoded = Arc::new(Decoded {
+            text: Arc::clone(&source.slide_json),
+            slide,
+            images,
+        });
         self.decoded.borrow_mut().insert(key, Arc::clone(&decoded));
         Ok(decoded)
     }
@@ -191,6 +199,12 @@ impl SlidePlayer {
         if let Some(clock) = self.clocks.get_mut(&key) {
             *clock = Clock::Paused(0.0);
         }
+    }
+
+    /// Forget a slide's playback, e.g. after its slide data changed: it shows its start again.
+    pub(crate) fn forget(&mut self, key: StrokeKey) {
+        self.clocks.remove(&key);
+        self.decoded.borrow_mut().remove(&key);
     }
 
     /// Advance the clocks: slides that reached their end stop there.

@@ -112,6 +112,8 @@ impl RnAppWindow {
         self.add_action(&action_import_file);
         let action_import_manim_slides = gio::SimpleAction::new("import-manim-slides", None);
         self.add_action(&action_import_manim_slides);
+        let action_update_manim_slides = gio::SimpleAction::new("update-manim-slides", None);
+        self.add_action(&action_update_manim_slides);
         let action_slide_forward = gio::SimpleAction::new("slide-forward", None);
         self.add_action(&action_slide_forward);
         let action_slide_back = gio::SimpleAction::new("slide-back", None);
@@ -1148,6 +1150,21 @@ impl RnAppWindow {
                     appwindow,
                     async move {
                         dialogs::import::filedialog_import_manim_slides(&appwindow).await;
+                    }
+                ));
+            }
+        ));
+
+        // Update Manim slides from a re-rendered deck
+        action_update_manim_slides.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::filedialog_update_manim_slides(&appwindow).await;
                     }
                 ));
             }

@@ -122,6 +122,7 @@ impl Engine {
     }
 
     /// How the main canvas and the zoom window show slides.
+    #[cfg(feature = "ui")]
     pub(crate) fn lecturer_slide_view(&self) -> SlideView {
         SlideView::Lecturer(self.config.read().lecturer_slides)
     }

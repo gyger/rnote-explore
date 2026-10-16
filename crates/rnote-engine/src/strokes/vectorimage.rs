@@ -225,6 +225,20 @@ impl VectorImage {
         Ok(image)
     }
 
+    /// This image with another Manim slide, e.g. its re-rendered version.
+    ///
+    /// With the same aspect ratio it keeps its exact rectangle, so repeated updates do not drift.
+    pub(crate) fn with_manim_slide(&self, source: SlideSource) -> anyhow::Result<Self> {
+        const ASPECT_TOLERANCE: f64 = 1e-9;
+
+        let mut image = Self::from_manim_slide(source, self.bounds())?;
+        let (old, new) = (self.bounds().extents(), image.bounds().extents());
+        if (old[0] * new[1] - old[1] * new[0]).abs() <= ASPECT_TOLERANCE * old[0] * new[1] {
+            image.rectangle = self.rectangle.clone();
+        }
+        Ok(image)
+    }
+
     pub fn from_pdf_bytes(
         to_be_read: &[u8],
         pdf_import_prefs: PdfImportPrefs,

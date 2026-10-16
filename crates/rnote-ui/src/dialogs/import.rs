@@ -12,7 +12,7 @@ use gtk4::{graphene, gsk};
 use hayro::hayro_syntax;
 use num_traits::ToPrimitive;
 use p2d::math::Vector2;
-use rnote_engine::engine::import::{PdfImportPageSpacing, PdfImportPagesType};
+use rnote_engine::engine::import::{ManimSlideFile, PdfImportPageSpacing, PdfImportPagesType};
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -120,38 +120,17 @@ const MANIM_SLIDE_PATTERN: &str = "*.slide.json";
 ///
 /// File names start with the slide number (`0003_Intro.slide.json`), so this is deck order.
 pub(crate) async fn filedialog_import_manim_slides(appwindow: &RnAppWindow) {
-    let filter = FileFilter::new();
-    filter.add_pattern(MANIM_SLIDE_PATTERN);
-    filter.set_name(Some(&gettext("Manim Slides")));
-
-    let filter_list = gio::ListStore::new::<FileFilter>();
-    filter_list.append(&filter);
-
-    let dialog = FileDialog::builder()
-        .title(gettext("Import Manim Slides"))
-        .modal(true)
-        .accept_label(gettext("Import"))
-        .filters(&filter_list)
-        .default_filter(&filter)
-        .build();
-
-    if let Some(current_workspace_dir) = appwindow.sidebar().workspacebrowser().dir_list_dir() {
-        dialog.set_initial_folder(Some(&gio::File::for_path(current_workspace_dir)));
-    }
-
-    let selected = match dialog.open_multiple_future(Some(appwindow)).await {
-        Ok(selected) => selected,
-        Err(e) => {
-            debug!("Did not import Manim slides (Error or dialog dismissed by user), Err: {e:?}");
-            return;
-        }
+    let initial_folder = appwindow.sidebar().workspacebrowser().dir_list_dir();
+    let Some(files) = pick_manim_slides(
+        appwindow,
+        &gettext("Import Manim Slides"),
+        &gettext("Import"),
+        initial_folder,
+    )
+    .await
+    else {
+        return;
     };
-
-    let mut files: Vec<gio::File> = selected
-        .into_iter()
-        .filter_map(|file| file.ok()?.downcast::<gio::File>().ok())
-        .collect();
-    files.sort_by_key(|file| file.basename());
 
     if let Err(e) = import_manim_slides(appwindow, files).await {
         error!("Importing Manim slides failed, Err: {e:?}");
@@ -161,18 +140,119 @@ pub(crate) async fn filedialog_import_manim_slides(appwindow: &RnAppWindow) {
     }
 }
 
+/// Pick re-rendered slide files and replace the document's slides of the same name.
+///
+/// Opens in the folder the slides were imported from, so a whole deck is Ctrl+A away.
+pub(crate) async fn filedialog_update_manim_slides(appwindow: &RnAppWindow) {
+    let Some(canvas) = appwindow.active_tab_canvas() else {
+        return;
+    };
+    let initial_folder = canvas
+        .engine_ref()
+        .manim_slides_folder()
+        .or_else(|| appwindow.sidebar().workspacebrowser().dir_list_dir());
+    let Some(files) = pick_manim_slides(
+        appwindow,
+        &gettext("Update Manim Slides"),
+        &gettext("Update"),
+        initial_folder,
+    )
+    .await
+    else {
+        return;
+    };
+
+    let slides = match read_manim_slides(files).await {
+        Ok(slides) => slides,
+        Err(e) => {
+            error!("Reading Manim slides failed, Err: {e:?}");
+            appwindow
+                .overlays()
+                .dispatch_toast_error(&gettext("Reading Manim slides failed"));
+            return;
+        }
+    };
+
+    let jsons = slides.into_iter().map(|file| file.json).collect();
+    let (widget_flags, update) = canvas.engine_mut().update_manim_slides(jsons);
+    appwindow.handle_widget_flags(widget_flags, &canvas);
+
+    // Example: "Updated 3 slides. Not in this document: Intro, Outro"
+    let mut summary = gettext("Updated {} slides").replace("{}", &update.updated.to_string());
+    if !update.unmatched.is_empty() {
+        summary += &format!(
+            ". {}: {}",
+            gettext("Not in this document"),
+            update.unmatched.join(", ")
+        );
+    }
+    if update.unreadable > 0 {
+        summary += &format!(". {}: {}", gettext("Unreadable"), update.unreadable);
+    }
+    appwindow.overlays().dispatch_toast_text(&summary, None);
+}
+
+/// Pick slide files, sorted by file name; `None` when the dialog is dismissed.
+async fn pick_manim_slides(
+    appwindow: &RnAppWindow,
+    title: &str,
+    accept_label: &str,
+    initial_folder: Option<std::path::PathBuf>,
+) -> Option<Vec<gio::File>> {
+    let filter = FileFilter::new();
+    filter.add_pattern(MANIM_SLIDE_PATTERN);
+    filter.set_name(Some(&gettext("Manim Slides")));
+
+    let filter_list = gio::ListStore::new::<FileFilter>();
+    filter_list.append(&filter);
+
+    let dialog = FileDialog::builder()
+        .title(title)
+        .modal(true)
+        .accept_label(accept_label)
+        .filters(&filter_list)
+        .default_filter(&filter)
+        .build();
+
+    if let Some(folder) = initial_folder {
+        dialog.set_initial_folder(Some(&gio::File::for_path(folder)));
+    }
+
+    let selected = match dialog.open_multiple_future(Some(appwindow)).await {
+        Ok(selected) => selected,
+        Err(e) => {
+            debug!("Did not pick Manim slides (Error or dialog dismissed by user), Err: {e:?}");
+            return None;
+        }
+    };
+
+    let mut files: Vec<gio::File> = selected
+        .into_iter()
+        .filter_map(|file| file.ok()?.downcast::<gio::File>().ok())
+        .collect();
+    files.sort_by_key(|file| file.basename());
+    Some(files)
+}
+
+async fn read_manim_slides(files: Vec<gio::File>) -> anyhow::Result<Vec<ManimSlideFile>> {
+    let mut slides = Vec::with_capacity(files.len());
+    for file in files {
+        let (bytes, _) = file.load_bytes_future().await?;
+        slides.push(ManimSlideFile {
+            json: String::from_utf8(bytes.to_vec())?,
+            path: file.path(),
+        });
+    }
+    Ok(slides)
+}
+
 async fn import_manim_slides(appwindow: &RnAppWindow, files: Vec<gio::File>) -> anyhow::Result<()> {
     let canvas = appwindow
         .active_tab_wrapper()
         .ok_or_else(|| anyhow!("No active tab to import into"))?
         .canvas();
 
-    let mut slides = Vec::with_capacity(files.len());
-    for file in files {
-        let (bytes, _) = file.load_bytes_future().await?;
-        slides.push(String::from_utf8(bytes.to_vec())?);
-    }
-
+    let slides = read_manim_slides(files).await?;
     canvas.load_in_manim_slides(slides).await
 }
 

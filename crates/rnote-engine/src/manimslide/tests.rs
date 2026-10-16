@@ -328,7 +328,7 @@ fn imported_slide_survives_saving() {
     // Saved and loaded again, the slide text is unchanged.
     let json = serde_json::to_string(&image).unwrap();
     let loaded: crate::strokes::VectorImage = serde_json::from_str(&json).unwrap();
-    assert_eq!(loaded.manim_slide.unwrap().slide_json, text);
+    assert_eq!(loaded.manim_slide.unwrap().slide_json(), text);
 }
 
 #[test]
