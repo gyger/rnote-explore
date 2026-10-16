@@ -226,3 +226,81 @@ fn rejects_unknown_version() {
     let text = r#"{"version": 2, "z": "", "images": []}"#;
     assert!(Slide::from_json(text).is_err());
 }
+
+// -- rendering ---------------------------------------------------------------
+//
+// `X@T.png` is slide X at time T, drawn by `exploration/manim-slides/slide_to_png.py`
+// (pycairo, the same drawing rules) at the slide's pixel size.
+
+/// A channel this far off counts the pixel as different (antialiasing differs slightly).
+const PIXEL_TOL: i16 = 24;
+/// Share of pixels allowed to differ: edges of upscaled images are filtered differently.
+const DIFFERING_SHARE: f64 = 0.01;
+
+fn render(slide: &Slide, t: f64) -> cairo::ImageSurface {
+    let (w, h) = (slide.frame.pw as i32, slide.frame.ph as i32);
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).unwrap();
+    let images = super::render::SlideImages::decode(slide).unwrap();
+
+    let cairo_cx = cairo::Context::new(&surface).unwrap();
+    let mut cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
+    let target = kurbo::Rect::new(0.0, 0.0, w as f64, h as f64);
+    slide.draw_at(&mut cx, &images, t, target).unwrap();
+    piet::RenderContext::finish(&mut cx).unwrap();
+    drop(cx);
+    drop(cairo_cx);
+    surface
+}
+
+/// `(slide name, time)` of `X@T.png`.
+fn reference_name(path: &Path) -> Option<(String, f64)> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".png")?;
+    let (name, t) = stem.rsplit_once('@')?;
+    Some((name.to_owned(), t.parse().ok()?))
+}
+
+#[test]
+fn renders_like_reference_images() {
+    let mut checked = 0;
+    for entry in std::fs::read_dir(data_dir()).unwrap() {
+        let path = entry.unwrap().path();
+        let Some((name, t)) = reference_name(&path) else {
+            continue;
+        };
+
+        let text = std::fs::read_to_string(data_dir().join(name.clone() + SLIDE_SUFFIX)).unwrap();
+        let slide = Slide::from_json(&text).unwrap();
+        let mut surface = render(&slide, t);
+        let expected = image::open(&path).unwrap().into_rgba8();
+        assert_eq!(
+            (surface.width() as u32, surface.height() as u32),
+            expected.dimensions(),
+            "{name}@{t}: size"
+        );
+
+        // Cairo stores premultiplied BGRA; the slides have opaque backgrounds.
+        let stride = surface.stride() as usize;
+        let data = surface.data().unwrap();
+        let mut differing = 0;
+        for (x, y, px) in expected.enumerate_pixels() {
+            let i = y as usize * stride + x as usize * 4;
+            let got = [data[i + 2], data[i + 1], data[i], data[i + 3]];
+            if got
+                .iter()
+                .zip(px.0)
+                .any(|(g, e)| (*g as i16 - e as i16).abs() > PIXEL_TOL)
+            {
+                differing += 1;
+            }
+        }
+
+        let share = differing as f64 / (expected.width() * expected.height()) as f64;
+        assert!(
+            share <= DIFFERING_SHARE,
+            "{name}@{t}: {:.2}% of pixels differ",
+            share * 100.0
+        );
+        checked += 1;
+    }
+    assert!(checked > 0, "no reference images found");
+}

@@ -16,6 +16,7 @@
 mod draw;
 mod format;
 mod ops;
+mod render;
 mod timeline;
 
 #[cfg(test)]

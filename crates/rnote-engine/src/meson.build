@@ -36,6 +36,7 @@ rnote_engine_sources = files(
     'manimslide/format.rs',
     'manimslide/mod.rs',
     'manimslide/ops.rs',
+    'manimslide/render.rs',
     'manimslide/tests.rs',
     'manimslide/timeline.rs',
     'pens/brush.rs',
