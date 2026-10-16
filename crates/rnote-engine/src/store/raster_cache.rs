@@ -1,5 +1,5 @@
 // Imports
-use super::{StrokeKey, StrokeStore};
+use super::{DrawJob, StrokeKey, StrokeStore};
 use crate::engine::{EngineTask, EngineTaskSender};
 use crate::strokes::Stroke;
 use crate::{Camera, Drawable, Image};
@@ -31,8 +31,10 @@ use tracing::error;
 /// A stroke turns shared once the history holds a copy of the stroke map and the map is
 /// copied for the next edit. A document just opened has no shared stroke at all.
 ///
+/// A live stroke standing still is cached like any other, as the still frame it shows.
+///
 /// A cache [in the background](Self::in_background) never rasterizes while drawing: the UI
-/// thread draws every window, so a full page rasterized there stalls them all.
+/// thread draws every window, so a page of slides rasterized there stalls them all.
 ///
 /// ```text
 ///  UI thread                     worker thread            UI thread
@@ -73,14 +75,23 @@ pub(crate) enum Rasters {
 struct Subject {
     stroke: Arc<Stroke>,
     image_scale: f64,
+    /// The still frame of a live stroke the raster shows; `None` for the stroke itself.
+    still: Option<u64>,
     /// Rasterized part of the stroke, in document coordinates.
     region: Aabb,
 }
 
 impl Subject {
-    fn fits(&self, stroke: &Arc<Stroke>, image_scale: f64, visible: Aabb) -> bool {
+    fn fits(
+        &self,
+        stroke: &Arc<Stroke>,
+        image_scale: f64,
+        still: Option<u64>,
+        visible: Aabb,
+    ) -> bool {
         Arc::ptr_eq(&self.stroke, stroke)
             && self.image_scale == image_scale
+            && self.still == still
             && self.region.contains(&visible)
     }
 }
@@ -120,7 +131,7 @@ pub struct Rasterized {
 type Job = Box<dyn FnOnce() + Send>;
 
 /// The one thread that rasterizes in the background, in the order asked. One, not a pool:
-/// the other cores stay with the main canvas.
+/// the other cores stay with the main canvas, and slides keep their pictures per thread.
 #[derive(Debug, Default)]
 struct Worker {
     jobs: OnceCell<mpsc::Sender<Job>>,
@@ -170,6 +181,8 @@ impl RasterCache {
 
     /// Cached raster of `stroke`; on a miss rasterized inline, or `None` in the background.
     /// `None` also for a stroke `pen` may be editing in place, or outside the viewport.
+    ///
+    /// `still` is the frame a live stroke stands on, with who draws it.
     fn node(
         &self,
         key: StrokeKey,
@@ -177,14 +190,16 @@ impl RasterCache {
         viewport: Aabb,
         image_scale: f64,
         pen: PenProgress,
+        still: Option<(u64, &dyn super::LiveStrokes)>,
     ) -> anyhow::Result<Option<gtk4::gsk::RenderNode>> {
+        let frame = still.map(|(frame, _)| frame);
         let Some(visible) = Self::visible(stroke, viewport, pen) else {
             return Ok(None);
         };
 
         let mut entries = self.entries.borrow_mut();
         if let Some(entry) = entries.get(&key)
-            && entry.subject.fits(stroke, image_scale, visible)
+            && entry.subject.fits(stroke, image_scale, frame, visible)
         {
             return Ok(Some(entry.node.clone()));
         }
@@ -195,8 +210,11 @@ impl RasterCache {
         let Some(region) = Self::region(stroke, viewport) else {
             return Ok(None);
         };
-        let node = Image::gen_with_piet(|cx| stroke.draw(cx, image_scale), region, image_scale)?
-            .to_rendernode()?;
+        let draw = |cx: &mut piet_cairo::CairoRenderContext| match still {
+            Some((_, live)) => live.draw_live(key, stroke, cx, stroke.bounds()),
+            None => stroke.draw(cx, image_scale),
+        };
+        let node = Image::gen_with_piet(draw, region, image_scale)?.to_rendernode()?;
 
         entries.insert(
             key,
@@ -204,6 +222,7 @@ impl RasterCache {
                 subject: Subject {
                     stroke: Arc::clone(stroke),
                     image_scale,
+                    still: frame,
                     region,
                 },
                 node: node.clone(),
@@ -214,6 +233,7 @@ impl RasterCache {
 
     /// Order the raster of `stroke` from the worker, unless it is here or under way. It
     /// comes back as an [EngineTask] through `tasks_tx`, to be handed to [Self::accept].
+    #[allow(clippy::too_many_arguments)]
     fn request(
         &self,
         key: StrokeKey,
@@ -221,14 +241,16 @@ impl RasterCache {
         viewport: Aabb,
         image_scale: f64,
         pen: PenProgress,
+        still: Option<(u64, &dyn super::LiveStrokes)>,
         tasks_tx: &EngineTaskSender,
     ) {
+        let frame = still.map(|(frame, _)| frame);
         let Some(visible) = Self::visible(stroke, viewport, pen) else {
             return;
         };
         self.awaited.borrow_mut().insert(key);
 
-        let fits = |subject: &Subject| subject.fits(stroke, image_scale, visible);
+        let fits = |subject: &Subject| subject.fits(stroke, image_scale, frame, visible);
         if self
             .entries
             .borrow()
@@ -245,12 +267,26 @@ impl RasterCache {
         let Some(region) = Self::region(stroke, viewport) else {
             return;
         };
+        // A still frame is drawn by who plays it, any other stroke draws itself.
+        let draw: DrawJob = match still {
+            Some((_, live)) => {
+                let Some(draw) = live.still_job(key, stroke) else {
+                    return;
+                };
+                draw
+            }
+            None => {
+                let stroke = Arc::clone(stroke);
+                Box::new(move |cx, _bounds| stroke.draw(cx, image_scale))
+            }
+        };
 
         let called_off = Arc::new(AtomicBool::new(false));
         let order = Order {
             subject: Subject {
                 stroke: Arc::clone(stroke),
                 image_scale,
+                still: frame,
                 region,
             },
             progress: Progress::Working,
@@ -262,7 +298,7 @@ impl RasterCache {
         }
         drop(orders);
 
-        let stroke = Arc::clone(stroke);
+        let bounds = stroke.bounds();
         let tasks_tx = tasks_tx.clone();
         self.worker.run(Box::new(move || {
             if called_off.load(Ordering::Relaxed) {
@@ -271,7 +307,7 @@ impl RasterCache {
 
             // Always answer, also after a panic: a view may wait for this raster.
             let image = catch_unwind(AssertUnwindSafe(|| {
-                Image::gen_with_piet(|cx| stroke.draw(cx, image_scale), region, image_scale)
+                Image::gen_with_piet(|cx| draw(cx, bounds), region, image_scale)
             }))
             .unwrap_or_else(|_| Err(anyhow::anyhow!("rasterizing panicked")))
             .inspect_err(|e| error!("Rasterizing a stroke in the background failed, Err: {e:?}"))
@@ -337,6 +373,28 @@ impl RasterCache {
     }
 }
 
+/// What a raster of a stroke shows.
+enum Pose {
+    /// The stroke itself.
+    Plain,
+    /// The still frame a live stroke stands on.
+    Still(u64),
+    /// Nothing: a live stroke that moves is another picture every frame.
+    Moving,
+}
+
+impl Pose {
+    fn of(live: &dyn super::LiveStrokes, key: StrokeKey, stroke: &Stroke) -> Self {
+        if !live.is_live(key, stroke) {
+            return Self::Plain;
+        }
+        match live.still_frame(key, stroke) {
+            Some(frame) => Self::Still(frame),
+            None => Self::Moving,
+        }
+    }
+}
+
 impl StrokeStore {
     /// Order the rasters of the strokes in `viewport` that `cache` lacks; they arrive through
     /// `tasks_tx`. Call before each draw from a cache in the background: a draw drops the
@@ -347,6 +405,7 @@ impl StrokeStore {
         viewport: Aabb,
         cache: &RasterCache,
         pen: PenProgress,
+        live: &dyn super::LiveStrokes,
         tasks_tx: &EngineTaskSender,
     ) -> Rasters {
         let image_scale = camera.image_scale();
@@ -357,8 +416,13 @@ impl StrokeStore {
             let Some(stroke) = self.stroke_components.get(key) else {
                 continue;
             };
+            let still = match Pose::of(live, key, stroke) {
+                Pose::Plain => None,
+                Pose::Still(frame) => Some((frame, live)),
+                Pose::Moving => continue,
+            };
 
-            cache.request(key, stroke, viewport, image_scale, pen, tasks_tx);
+            cache.request(key, stroke, viewport, image_scale, pen, still, tasks_tx);
             if cache.awaits(key) {
                 rasters = Rasters::Awaited;
             }
@@ -367,8 +431,9 @@ impl StrokeStore {
     }
 
     /// Draw `paper` and the strokes in `viewport` for a view without per-stroke renderings.
-    /// Strokes come from `cache`; those `pen` may be editing are drawn immediate, clipped to
-    /// `clip`.
+    /// Strokes come from `cache`; those `pen` may be editing and live ones that move are
+    /// drawn immediate, clipped to `clip`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_strokes_cached(
         &self,
         snapshot: &gtk4::Snapshot,
@@ -377,6 +442,7 @@ impl StrokeStore {
         clip: Aabb,
         cache: &RasterCache,
         pen: PenProgress,
+        live: &dyn super::LiveStrokes,
         paper: impl FnOnce(&gtk4::Snapshot),
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
@@ -396,36 +462,53 @@ impl StrokeStore {
             let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
             piet_cx.transform(camera.transform().to_kurbo());
             piet_cx.clip(clip.to_kurbo_rect());
-            self.draw_keys_immediate(keys, &mut piet_cx, image_scale)?;
+            for &key in keys.iter() {
+                match self.stroke_components.get(key) {
+                    Some(stroke) if live.is_live(key, stroke) => {
+                        live.draw_live(key, stroke, &mut piet_cx, stroke.bounds())?
+                    }
+                    _ => self.draw_keys_immediate(&[key], &mut piet_cx, image_scale)?,
+                }
+            }
             piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
             keys.clear();
             Ok(())
         };
 
         // Strokes in stacking order; uncached ones are batched into runs.
-        let draw_keys =
-            |keys: &[StrokeKey], shown: &mut HashSet<StrokeKey>| -> anyhow::Result<()> {
-                let mut run = Vec::new();
-                for &key in keys {
-                    let Some(stroke) = self.stroke_components.get(key) else {
-                        continue;
-                    };
-                    let Some(node) = cache.node(key, stroke, viewport, image_scale, pen)? else {
+        let draw_keys = |keys: &[StrokeKey],
+                         shown: &mut HashSet<StrokeKey>|
+         -> anyhow::Result<()> {
+            let mut run = Vec::new();
+            for &key in keys {
+                let Some(stroke) = self.stroke_components.get(key) else {
+                    continue;
+                };
+                // A live stroke is cached only while it stands still.
+                let still = match Pose::of(live, key, stroke) {
+                    Pose::Plain => None,
+                    Pose::Still(frame) => Some((frame, live)),
+                    Pose::Moving => {
                         run.push(key);
                         continue;
-                    };
-                    draw_run(&mut run)?;
-                    shown.insert(key);
+                    }
+                };
+                let Some(node) = cache.node(key, stroke, viewport, image_scale, pen, still)? else {
+                    run.push(key);
+                    continue;
+                };
+                draw_run(&mut run)?;
+                shown.insert(key);
 
-                    snapshot.save();
-                    snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-                    snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
-                    snapshot.append_node(&node);
-                    snapshot.pop();
-                    snapshot.restore();
-                }
-                draw_run(&mut run)
-            };
+                snapshot.save();
+                snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+                snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
+                snapshot.append_node(&node);
+                snapshot.pop();
+                snapshot.restore();
+            }
+            draw_run(&mut run)
+        };
 
         // Markers multiply with the paper and everything below, as on the main canvas:
         //   Blend(bottom: Blend(bottom: paper + ink, top: marker 1), top: marker 2)
@@ -501,11 +584,49 @@ mod tests {
         let viewport = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
         let cache = RasterCache::default();
 
-        let editing = cache.node(key, stroke, viewport, 1.0, PenProgress::InProgress);
+        let editing = cache.node(key, stroke, viewport, 1.0, PenProgress::InProgress, None);
         assert!(editing.unwrap().is_none());
 
-        let idle = cache.node(key, stroke, viewport, 1.0, PenProgress::Idle);
+        let idle = cache.node(key, stroke, viewport, 1.0, PenProgress::Idle, None);
         assert!(idle.unwrap().is_some());
+    }
+
+    /// A live stroke standing still; counts how often it is drawn.
+    #[derive(Default)]
+    struct StillLive {
+        frame: std::cell::Cell<u64>,
+        drawn: std::cell::Cell<usize>,
+        /// The threads its still jobs ran on.
+        jobs_ran_on: Arc<std::sync::Mutex<Vec<std::thread::ThreadId>>>,
+    }
+
+    impl crate::store::LiveStrokes for StillLive {
+        fn is_live(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
+            true
+        }
+
+        fn still_frame(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
+            Some(self.frame.get())
+        }
+
+        fn draw_live(
+            &self,
+            _key: StrokeKey,
+            _stroke: &Stroke,
+            _cx: &mut piet_cairo::CairoRenderContext,
+            _bounds: Aabb,
+        ) -> anyhow::Result<()> {
+            self.drawn.set(self.drawn.get() + 1);
+            Ok(())
+        }
+
+        fn still_job(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<DrawJob> {
+            let ran_on = Arc::clone(&self.jobs_ran_on);
+            Some(Box::new(move |_cx, _bounds| {
+                ran_on.lock().unwrap().push(std::thread::current().id());
+                Ok(())
+            }))
+        }
     }
 
     /// The next raster the worker sends back.
@@ -517,13 +638,13 @@ mod tests {
         }
     }
 
-    /// The UI thread draws every window: a raster made while drawing stalls the main canvas too.
+    /// The UI thread draws every window: a raster made on it stalls the main canvas too.
     #[test]
-    fn background_cache_rasterizes_when_asked_not_when_drawn() {
+    fn background_cache_rasterizes_off_the_asking_thread() {
         let (store, key) = store_with_stroke();
         let stroke = store.stroke_components.get(key).unwrap();
         let viewport = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
-        let cache = RasterCache::in_background();
+        let (cache, live) = (RasterCache::in_background(), StillLive::default());
         let mut engine = crate::Engine::default();
         let tasks_tx = engine.engine_tasks_tx();
         let request = || {
@@ -532,24 +653,31 @@ mod tests {
                 viewport,
                 &cache,
                 PenProgress::Idle,
+                &live,
                 &tasks_tx,
             )
         };
         let node = || {
+            let still = Some((0, &live as &dyn crate::store::LiveStrokes));
             cache
-                .node(key, stroke, viewport, 1.0, PenProgress::Idle)
+                .node(key, stroke, viewport, 1.0, PenProgress::Idle, still)
                 .unwrap()
         };
 
         // Ordered, not drawn: nothing to show yet.
         assert_eq!(request(), Rasters::Awaited);
         assert!(node().is_none());
+        assert_eq!(live.drawn.get(), 0);
 
         cache.accept(next_raster(&mut engine));
+        let ran_on = live.jobs_ran_on.lock().unwrap().clone();
+        assert_eq!(ran_on.len(), 1);
+        assert_ne!(ran_on[0], std::thread::current().id());
 
         // Asking again orders nothing more.
         assert_eq!(request(), Rasters::Ready);
         assert!(node().is_some());
+        assert_eq!(live.jobs_ran_on.lock().unwrap().len(), 1);
     }
 
     /// Scrolling on leaves rasters behind that nobody will look at.
@@ -562,7 +690,15 @@ mod tests {
         let mut engine = crate::Engine::default();
         let tasks_tx = engine.engine_tasks_tx();
 
-        cache.request(key, stroke, viewport, 1.0, PenProgress::Idle, &tasks_tx);
+        cache.request(
+            key,
+            stroke,
+            viewport,
+            1.0,
+            PenProgress::Idle,
+            None,
+            &tasks_tx,
+        );
         let rasterized = next_raster(&mut engine);
 
         // A draw keeps what was asked for before it; the next draw without asking does not.
@@ -573,8 +709,63 @@ mod tests {
         assert!(!cache.awaits(key));
 
         cache.accept(rasterized);
-        let node = cache.node(key, stroke, viewport, 1.0, PenProgress::Idle);
+        let node = cache.node(key, stroke, viewport, 1.0, PenProgress::Idle, None);
         assert!(node.unwrap().is_none());
+    }
+
+    #[test]
+    fn still_live_stroke_is_drawn_once_per_frame_it_shows() {
+        let (store, key) = store_with_stroke();
+        let stroke = store.stroke_components.get(key).unwrap();
+        let viewport = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
+        let (cache, live) = (RasterCache::default(), StillLive::default());
+        let node = |frame| {
+            cache
+                .node(
+                    key,
+                    stroke,
+                    viewport,
+                    1.0,
+                    PenProgress::Idle,
+                    Some((frame, &live)),
+                )
+                .unwrap()
+        };
+
+        // Redraws of the same frame reuse its raster.
+        assert!(node(0).is_some());
+        assert!(node(0).is_some());
+        assert_eq!(live.drawn.get(), 1);
+
+        // Another frame is another picture.
+        assert!(node(1).is_some());
+        assert_eq!(live.drawn.get(), 2);
+    }
+
+    struct NoLive;
+
+    impl crate::store::LiveStrokes for NoLive {
+        fn is_live(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
+            false
+        }
+
+        fn still_frame(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
+            None
+        }
+
+        fn draw_live(
+            &self,
+            _key: StrokeKey,
+            _stroke: &Stroke,
+            _cx: &mut piet_cairo::CairoRenderContext,
+            _bounds: Aabb,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn still_job(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<DrawJob> {
+            None
+        }
     }
 
     /// Whether the node tree holds a multiply blend, e.g. `Clip > Blend(Multiply) > ..`.
@@ -622,6 +813,7 @@ mod tests {
                 viewport,
                 &RasterCache::default(),
                 PenProgress::Idle,
+                &NoLive,
                 |_| {},
             )
             .unwrap();
