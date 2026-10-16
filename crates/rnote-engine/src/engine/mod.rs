@@ -5,6 +5,7 @@ pub mod export;
 pub mod import;
 pub mod presentation;
 pub mod rendering;
+pub mod slides;
 pub mod snapshot;
 pub mod strokecontent;
 pub mod tablet;
@@ -23,6 +24,7 @@ pub use strokecontent::{LayeredStroke, StrokeContent};
 // Imports
 use crate::Image;
 use crate::document::Layout;
+use crate::manimslide::SlidePlayer;
 use crate::pens::PenMode;
 use crate::pens::{Pen, PenStyle};
 use crate::presentation::Presentation;
@@ -238,6 +240,9 @@ pub struct Engine {
     #[cfg(feature = "ui")]
     #[serde(skip)]
     zoom_rasters: RasterCache,
+    // Playback of Manim slides; not saved, slides open at their stored time
+    #[serde(skip)]
+    slides: SlidePlayer,
 }
 
 impl Default for Engine {
@@ -269,6 +274,7 @@ impl Default for Engine {
             audience_rasters: RasterCache::default(),
             #[cfg(feature = "ui")]
             zoom_rasters: RasterCache::default(),
+            slides: SlidePlayer::default(),
         }
     }
 }
@@ -375,8 +381,9 @@ impl Engine {
     pub fn load_snapshot(&mut self, snapshot: EngineSnapshot) -> WidgetFlags {
         self.document = snapshot.document.extract_snapshot_data();
         self.camera = snapshot.camera.extract_snapshot_data();
-        let mut widget_flags = self.store.import_from_snapshot(&snapshot)
-            | self.doc_resize_autoexpand()
+        let mut widget_flags = self.store.import_from_snapshot(&snapshot);
+        self.slides_forget_stale();
+        widget_flags |= self.doc_resize_autoexpand()
             | self.current_pen_update_state()
             | self.background_rendering_regenerate()
             | self.update_content_rendering_current_viewport();
@@ -397,7 +404,9 @@ impl Engine {
 
     /// Undo the latest changes.
     pub fn undo(&mut self, now: Instant) -> WidgetFlags {
-        self.store.undo(now)
+        let widget_flags = self.store.undo(now);
+        self.slides_forget_stale();
+        widget_flags
             | self.doc_resize_autoexpand()
             | self.current_pen_update_state()
             | self.update_rendering_current_viewport()
@@ -405,7 +414,9 @@ impl Engine {
 
     /// Redo the latest changes.
     pub fn redo(&mut self, now: Instant) -> WidgetFlags {
-        self.store.redo(now)
+        let widget_flags = self.store.redo(now);
+        self.slides_forget_stale();
+        widget_flags
             | self.doc_resize_autoexpand()
             | self.current_pen_update_state()
             | self.update_rendering_current_viewport()
@@ -421,7 +432,9 @@ impl Engine {
 
     // Clears the entire engine.
     pub fn clear(&mut self) -> WidgetFlags {
-        self.store.clear() | self.current_pen_update_state() | self.return_to_origin(None)
+        let widget_flags = self.store.clear();
+        self.slides_forget_stale();
+        widget_flags | self.current_pen_update_state() | self.return_to_origin(None)
     }
 
     /// Handle a received task from tasks_rx.
