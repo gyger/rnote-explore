@@ -5,6 +5,7 @@ use super::{Content, Stroke};
 use crate::Image;
 use crate::document::Format;
 use crate::engine::import::{PdfImportPageSpacing, PdfImportPrefs};
+use crate::manimslide::SlideSource;
 use crate::svg::USVG_FONTDB;
 use crate::{Drawable, Svg};
 use anyhow::anyhow;
@@ -34,6 +35,11 @@ pub struct VectorImage {
     pub intrinsic_size: Vector2,
     #[serde(rename = "rectangle")]
     pub rectangle: Rectangle,
+    /// The Manim slide this image shows; `svg_data` is its still frame.
+    ///
+    /// Optional, so readers without slide support still show the still frame.
+    #[serde(rename = "manim_slide", skip_serializing_if = "Option::is_none")]
+    pub(crate) manim_slide: Option<SlideSource>,
 }
 
 impl Default for VectorImage {
@@ -42,6 +48,7 @@ impl Default for VectorImage {
             svg_data: String::default(),
             intrinsic_size: Vector2::ZERO,
             rectangle: Rectangle::default(),
+            manim_slide: None,
         }
     }
 }
@@ -202,7 +209,34 @@ impl VectorImage {
             svg_data,
             intrinsic_size,
             rectangle,
+            manim_slide: None,
         })
+    }
+
+    /// A Manim slide fitted into `bounds`, centered with its aspect ratio kept.
+    pub(crate) fn from_manim_slide(source: SlideSource, bounds: Aabb) -> anyhow::Result<Self> {
+        let still = source.still_frame()?;
+        let scale = (bounds.extents()[0] / still.width).min(bounds.extents()[1] / still.height);
+        let size = Vector2::new(still.width, still.height) * scale;
+        let pos = bounds.mins + (bounds.extents() - size) * 0.5;
+
+        let mut image = Self::from_svg_str(&still.svg, pos, ImageSizeOption::ImposeSize(size))?;
+        image.manim_slide = Some(source);
+        Ok(image)
+    }
+
+    /// This image with another Manim slide, e.g. its re-rendered version.
+    ///
+    /// With the same aspect ratio it keeps its exact rectangle, so repeated updates do not drift.
+    pub(crate) fn with_manim_slide(&self, source: SlideSource) -> anyhow::Result<Self> {
+        const ASPECT_TOLERANCE: f64 = 1e-9;
+
+        let mut image = Self::from_manim_slide(source, self.bounds())?;
+        let (old, new) = (self.bounds().extents(), image.bounds().extents());
+        if (old[0] * new[1] - old[1] * new[0]).abs() <= ASPECT_TOLERANCE * old[0] * new[1] {
+            image.rectangle = self.rectangle.clone();
+        }
+        Ok(image)
     }
 
     pub fn from_pdf_bytes(

@@ -160,6 +160,19 @@ impl RnCanvas {
         Ok(())
     }
 
+    /// Loads in Manim slide files (their text) and imports them, one per page from the page in view.
+    pub(crate) async fn load_in_manim_slides(
+        &self,
+        slides: Vec<rnote_engine::engine::import::ManimSlideFile>,
+    ) -> anyhow::Result<()> {
+        let strokes_receiver = self.engine_mut().generate_manim_slides(slides);
+        let strokes = strokes_receiver.await??;
+        let widget_flags = self.engine_mut().import_generated_content(strokes, false);
+
+        self.emit_handle_widget_flags(widget_flags);
+        Ok(())
+    }
+
     /// Imports a text.
     ///
     /// `target_pos` is in coordinate space of the doc.
