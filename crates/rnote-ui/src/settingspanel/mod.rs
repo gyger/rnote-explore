@@ -22,6 +22,7 @@ use rnote_engine::WidgetFlags;
 use rnote_engine::document::Layout;
 use rnote_engine::document::background::PatternStyle;
 use rnote_engine::document::format::{self, Format, PredefinedFormat};
+use rnote_engine::engine::slides::LecturerSlides;
 use rnote_engine::ext::GdkRGBAExt;
 use rnote_engine::pens::PenMode;
 use std::cell::RefCell;
@@ -45,6 +46,8 @@ mod imp {
         pub(crate) general_show_scrollbars_row: TemplateChild<adw::SwitchRow>,
         #[template_child]
         pub(crate) general_optimize_epd_row: TemplateChild<adw::SwitchRow>,
+        #[template_child]
+        pub(crate) general_animate_slides_row: TemplateChild<adw::SwitchRow>,
         #[template_child]
         pub(crate) general_inertial_scrolling_row: TemplateChild<adw::SwitchRow>,
         #[template_child]
@@ -436,6 +439,10 @@ impl RnSettingsPanel {
         let optimize_epd = appwindow.engine_config().read().optimize_epd;
         imp.general_optimize_epd_row.set_active(optimize_epd);
 
+        let lecturer_slides = appwindow.engine_config().read().lecturer_slides;
+        imp.general_animate_slides_row
+            .set_active(lecturer_slides == LecturerSlides::Animate);
+
         if let Some(canvas) = canvas {
             let format_border_color = canvas.engine_ref().document.config.format.border_color;
 
@@ -633,6 +640,23 @@ impl RnSettingsPanel {
             move |row| {
                 let optimize_epd = row.is_active();
                 appwindow.engine_config().write().optimize_epd = optimize_epd;
+            }
+        ));
+
+        imp.general_animate_slides_row.connect_active_notify(clone!(
+            #[weak]
+            appwindow,
+            move |row| {
+                let lecturer_slides = if row.is_active() {
+                    LecturerSlides::Animate
+                } else {
+                    LecturerSlides::EndState
+                };
+                appwindow.engine_config().write().lecturer_slides = lecturer_slides;
+                if let Some(canvas) = appwindow.active_tab_canvas() {
+                    canvas.queue_draw();
+                }
+                appwindow.overlays().zoomwindow().queue_redraw();
             }
         ));
 
