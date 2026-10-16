@@ -9,6 +9,8 @@ use super::timeline::{Cap, Frame, Join, Slide};
 use anyhow::{Context, anyhow};
 use base64::Engine as _;
 use kurbo::{Affine, BezPath, Rect};
+use p2d::bounding_volume::Aabb;
+use p2d::math::Vector2;
 use piet::{RenderContext, StrokeStyle};
 
 const DATA_URI_PREFIX: &str = "data:image/png;base64,";
@@ -55,6 +57,24 @@ fn decode_png_uri(uri: &str) -> anyhow::Result<Bitmap> {
 }
 
 impl Slide {
+    /// The slide at `t` as a standalone SVG document of its pixel size.
+    pub(crate) fn still_svg(&self, images: &SlideImages, t: f64) -> anyhow::Result<String> {
+        let size = Vector2::new(self.frame.pw, self.frame.ph);
+        let bounds = Aabb::new(Vector2::ZERO, size);
+        let target = Rect::new(0.0, 0.0, size[0], size[1]);
+
+        let svg = crate::Svg::gen_with_piet_cairo_backend(
+            |cx| self.draw_at(cx, images, t, target),
+            bounds,
+        )?;
+        Ok(rnote_compose::utils::wrap_svg_root(
+            &svg.svg_data,
+            Some(bounds),
+            Some(bounds),
+            false,
+        ))
+    }
+
     /// Draw the slide at time `t` into `target`, centered with its aspect ratio kept.
     pub(crate) fn draw_at(
         &self,

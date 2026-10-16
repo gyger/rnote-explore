@@ -2,6 +2,7 @@
 use super::StrokeContent;
 use crate::document::Layout;
 use crate::engine_view_mut;
+use crate::manimslide::SlideSource;
 use crate::pens::Pen;
 use crate::pens::PenStyle;
 use crate::store::StrokeKey;
@@ -10,6 +11,7 @@ use crate::strokes::{BitmapImage, Stroke, VectorImage};
 use crate::strokes::{Resize, resize::ImageSizeOption, resize::calculate_resize_ratio};
 use crate::{Engine, WidgetFlags};
 use futures::channel::oneshot;
+use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::ext::Vector2Ext;
 use rnote_compose::shapes::Shapeable;
@@ -283,6 +285,48 @@ impl Engine {
             if oneshot_sender.send(result()).is_err() {
                 error!(
                     "Sending result to receiver while importing Pdf bytes failed. Receiver already dropped"
+                );
+            }
+        });
+
+        oneshot_receiver
+    }
+
+    /// Generate one image stroke per Manim slide file (`.slide.json` text), one per document page.
+    ///
+    /// Slides fill the pages from the one containing `insert_pos` on, in the given order.
+    #[allow(clippy::type_complexity)]
+    pub fn generate_manim_slides(
+        &self,
+        slide_jsons: Vec<String>,
+        insert_pos: Vector2,
+    ) -> oneshot::Receiver<anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>>> {
+        let (oneshot_sender, oneshot_receiver) =
+            oneshot::channel::<anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>>>();
+        let format = self.document.config.format;
+        let first_page = (insert_pos[1] / format.height()).floor().max(0.0);
+
+        rayon::spawn(move || {
+            let result = || -> anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>> {
+                slide_jsons
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, slide_json)| {
+                        let top = (first_page + i as f64) * format.height();
+                        let page = Aabb::new(
+                            Vector2::new(0.0, top),
+                            Vector2::new(format.width(), top + format.height()),
+                        );
+                        let source = SlideSource::from_json(slide_json)?;
+                        let image = VectorImage::from_manim_slide(source, page)?;
+                        Ok((Stroke::VectorImage(image), Some(StrokeLayer::Document)))
+                    })
+                    .collect()
+            };
+
+            if oneshot_sender.send(result()).is_err() {
+                error!(
+                    "Sending result to receiver while importing Manim slides failed. Receiver already dropped"
                 );
             }
         });

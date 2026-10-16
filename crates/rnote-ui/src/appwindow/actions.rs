@@ -110,6 +110,8 @@ impl RnAppWindow {
         self.add_action(&action_print_doc);
         let action_import_file = gio::SimpleAction::new("import-file", None);
         self.add_action(&action_import_file);
+        let action_import_manim_slides = gio::SimpleAction::new("import-manim-slides", None);
+        self.add_action(&action_import_manim_slides);
         let action_export_doc = gio::SimpleAction::new("export-doc", None);
         self.add_action(&action_export_doc);
         let action_export_doc_pages = gio::SimpleAction::new("export-doc-pages", None);
@@ -1105,6 +1107,21 @@ impl RnAppWindow {
                     appwindow,
                     async move {
                         dialogs::import::filedialog_import_file(&appwindow).await;
+                    }
+                ));
+            }
+        ));
+
+        // Import Manim slides
+        action_import_manim_slides.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    appwindow,
+                    async move {
+                        dialogs::import::filedialog_import_manim_slides(&appwindow).await;
                     }
                 ));
             }

@@ -113,6 +113,69 @@ pub(crate) async fn filedialog_import_file(appwindow: &RnAppWindow) {
     }
 }
 
+/// Pattern of slide files written by Manim's vector backend.
+const MANIM_SLIDE_PATTERN: &str = "*.slide.json";
+
+/// Pick Manim slide files and import them, one per page, in file name order.
+///
+/// File names start with the slide number (`0003_Intro.slide.json`), so this is deck order.
+pub(crate) async fn filedialog_import_manim_slides(appwindow: &RnAppWindow) {
+    let filter = FileFilter::new();
+    filter.add_pattern(MANIM_SLIDE_PATTERN);
+    filter.set_name(Some(&gettext("Manim Slides")));
+
+    let filter_list = gio::ListStore::new::<FileFilter>();
+    filter_list.append(&filter);
+
+    let dialog = FileDialog::builder()
+        .title(gettext("Import Manim Slides"))
+        .modal(true)
+        .accept_label(gettext("Import"))
+        .filters(&filter_list)
+        .default_filter(&filter)
+        .build();
+
+    if let Some(current_workspace_dir) = appwindow.sidebar().workspacebrowser().dir_list_dir() {
+        dialog.set_initial_folder(Some(&gio::File::for_path(current_workspace_dir)));
+    }
+
+    let selected = match dialog.open_multiple_future(Some(appwindow)).await {
+        Ok(selected) => selected,
+        Err(e) => {
+            debug!("Did not import Manim slides (Error or dialog dismissed by user), Err: {e:?}");
+            return;
+        }
+    };
+
+    let mut files: Vec<gio::File> = selected
+        .into_iter()
+        .filter_map(|file| file.ok()?.downcast::<gio::File>().ok())
+        .collect();
+    files.sort_by_key(|file| file.basename());
+
+    if let Err(e) = import_manim_slides(appwindow, files).await {
+        error!("Importing Manim slides failed, Err: {e:?}");
+        appwindow
+            .overlays()
+            .dispatch_toast_error(&gettext("Importing Manim slides failed"));
+    }
+}
+
+async fn import_manim_slides(appwindow: &RnAppWindow, files: Vec<gio::File>) -> anyhow::Result<()> {
+    let canvas = appwindow
+        .active_tab_wrapper()
+        .ok_or_else(|| anyhow!("No active tab to import into"))?
+        .canvas();
+
+    let mut slides = Vec::with_capacity(files.len());
+    for file in files {
+        let (bytes, _) = file.load_bytes_future().await?;
+        slides.push(String::from_utf8(bytes.to_vec())?);
+    }
+
+    canvas.load_in_manim_slides(slides, None).await
+}
+
 /// Check for a pdf encryption and request a password if needed from the user
 ///
 /// Returns a password Option and a boolean weather the user canceled the file import or not

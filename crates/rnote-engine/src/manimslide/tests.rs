@@ -304,3 +304,35 @@ fn renders_like_reference_images() {
     }
     assert!(checked > 0, "no reference images found");
 }
+
+// -- storage -----------------------------------------------------------------
+
+#[test]
+fn imported_slide_survives_saving() {
+    let text = std::fs::read_to_string(data_dir().join("0001_paint.slide.json")).unwrap();
+    let source = super::SlideSource::from_json(text.clone()).unwrap();
+    let page = p2d::bounding_volume::Aabb::new(
+        p2d::math::Vector2::new(0.0, 0.0),
+        p2d::math::Vector2::new(1600.0, 1000.0),
+    );
+    let image = crate::strokes::VectorImage::from_manim_slide(source, page).unwrap();
+
+    // Fitted into the page with the slide's aspect ratio, centered.
+    let bounds = rnote_compose::shapes::Shapeable::bounds(&image);
+    let slide = Slide::from_json(&text).unwrap();
+    let aspect = slide.frame.pw / slide.frame.ph;
+    assert!((bounds.extents()[0] / bounds.extents()[1] - aspect).abs() < 1e-6);
+    assert!((bounds.mins[1] + bounds.maxs[1] - 1000.0).abs() < 1e-6);
+    assert!(image.svg_data.contains("<path"), "still frame has no paths");
+
+    // Saved and loaded again, the slide text is unchanged.
+    let json = serde_json::to_string(&image).unwrap();
+    let loaded: crate::strokes::VectorImage = serde_json::from_str(&json).unwrap();
+    assert_eq!(loaded.manim_slide.unwrap().slide_json, text);
+}
+
+#[test]
+fn plain_vector_image_has_no_slide_field() {
+    let json = serde_json::to_string(&crate::strokes::VectorImage::default()).unwrap();
+    assert!(!json.contains("manim_slide"));
+}
