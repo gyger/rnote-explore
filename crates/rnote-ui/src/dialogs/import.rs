@@ -173,7 +173,7 @@ async fn import_manim_slides(appwindow: &RnAppWindow, files: Vec<gio::File>) -> 
         slides.push(String::from_utf8(bytes.to_vec())?);
     }
 
-    canvas.load_in_manim_slides(slides, None).await
+    canvas.load_in_manim_slides(slides).await
 }
 
 /// Check for a pdf encryption and request a password if needed from the user

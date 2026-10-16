@@ -292,31 +292,39 @@ impl Engine {
         oneshot_receiver
     }
 
+    /// `count` pages from the one under the center of the view on, downwards.
+    ///
+    /// Pages tile from the coordinate origin, like the format borders.
+    fn manim_slide_pages(&self, count: usize) -> Vec<Aabb> {
+        let size = self.document.config.format.size();
+        let first = (self.camera.viewport_center()[1] / size[1]).floor();
+
+        (0..count)
+            .map(|i| {
+                let top = Vector2::new(0.0, (first + i as f64) * size[1]);
+                Aabb::new(top, top + size)
+            })
+            .collect()
+    }
+
     /// Generate one image stroke per Manim slide file (`.slide.json` text), one per document page.
     ///
-    /// Slides fill the pages from the one containing `insert_pos` on, in the given order.
+    /// Slides fill the pages from the one in view on, in the given order.
     #[allow(clippy::type_complexity)]
     pub fn generate_manim_slides(
         &self,
         slide_jsons: Vec<String>,
-        insert_pos: Vector2,
     ) -> oneshot::Receiver<anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>>> {
         let (oneshot_sender, oneshot_receiver) =
             oneshot::channel::<anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>>>();
-        let format = self.document.config.format;
-        let first_page = (insert_pos[1] / format.height()).floor().max(0.0);
+        let pages = self.manim_slide_pages(slide_jsons.len());
 
         rayon::spawn(move || {
             let result = || -> anyhow::Result<Vec<(Stroke, Option<StrokeLayer>)>> {
                 slide_jsons
                     .into_iter()
-                    .enumerate()
-                    .map(|(i, slide_json)| {
-                        let top = (first_page + i as f64) * format.height();
-                        let page = Aabb::new(
-                            Vector2::new(0.0, top),
-                            Vector2::new(format.width(), top + format.height()),
-                        );
+                    .zip(pages)
+                    .map(|(slide_json, page)| {
                         let source = SlideSource::from_json(slide_json)?;
                         let image = VectorImage::from_manim_slide(source, page)?;
                         Ok((Stroke::VectorImage(image), Some(StrokeLayer::Document)))
@@ -446,5 +454,26 @@ impl Engine {
         widget_flags.redraw = true;
 
         widget_flags
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manim_slides_start_at_the_page_in_view() {
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        let page = engine.document.config.format.size();
+
+        // The view's top shows page 0, its center page 1.
+        let _ = engine
+            .camera
+            .set_viewport_center(Vector2::new(page[0] * 0.5, page[1] * 1.1));
+
+        let pages = engine.manim_slide_pages(2);
+        assert_eq!(pages[0].mins, Vector2::new(0.0, page[1]));
+        assert_eq!(pages[1].mins, Vector2::new(0.0, page[1] * 2.0));
     }
 }

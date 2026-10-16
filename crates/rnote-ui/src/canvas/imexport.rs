@@ -160,17 +160,9 @@ impl RnCanvas {
         Ok(())
     }
 
-    /// Loads in Manim slide files (their text) and imports them, one per page.
-    ///
-    /// `target_pos` is in coordinate space of the doc.
-    pub(crate) async fn load_in_manim_slides(
-        &self,
-        slides: Vec<String>,
-        target_pos: Option<Vector2>,
-    ) -> anyhow::Result<()> {
-        let pos = self.determine_stroke_import_pos(target_pos);
-
-        let strokes_receiver = self.engine_mut().generate_manim_slides(slides, pos);
+    /// Loads in Manim slide files (their text) and imports them, one per page from the page in view.
+    pub(crate) async fn load_in_manim_slides(&self, slides: Vec<String>) -> anyhow::Result<()> {
+        let strokes_receiver = self.engine_mut().generate_manim_slides(slides);
         let strokes = strokes_receiver.await??;
         let widget_flags = self.engine_mut().import_generated_content(strokes, false);
 

@@ -180,15 +180,21 @@ impl Engine {
         redraw()
     }
 
-    /// Move the view by one page: the next page's slide plays, the previous one shows its end.
+    /// Center the view on the neighbouring page: its slide plays, or shows its end going back.
+    ///
+    /// Pages tile from the coordinate origin. Example: the center at 1.3 page heights is on
+    /// page 1, so `Next` centers page 2 at 2.5 page heights, whatever the scroll position.
     fn slide_page_step(&mut self, step: PageStep) -> WidgetFlags {
-        let page_height = self.document.config.format.height() * self.camera.total_zoom();
-        let delta = match step {
-            PageStep::Previous => -page_height,
-            PageStep::Next => page_height,
+        let page_height = self.document.config.format.height();
+        let center = self.camera.viewport_center();
+        let page = (center[1] / page_height).floor();
+        let target = match step {
+            PageStep::Previous => page - 1.0,
+            PageStep::Next => page + 1.0,
         };
 
-        let offset = self.camera.offset() + Vector2::new(0.0, delta);
+        let new_center = Vector2::new(center[0], (target + 0.5) * page_height);
+        let offset = new_center * self.camera.total_zoom() - self.camera.size() * 0.5;
         let widget_flags = self.camera_set_offset_expand(offset);
         let Some(key) = self.slide_in_view() else {
             return widget_flags;
@@ -271,6 +277,24 @@ mod tests {
         let _ = engine.slide_back();
         assert_eq!(engine.slide_in_view(), Some(first));
         assert_eq!(engine.slides.position(first), Position::End);
+    }
+
+    #[test]
+    fn page_steps_center_the_neighbouring_page() {
+        let (mut engine, [first, second]) = engine_with_slides();
+        let page = engine.document.config.format.size();
+
+        // Scrolled a little off the first page's center, still on it.
+        let _ = engine
+            .camera
+            .set_viewport_center(Vector2::new(page[0] * 0.5, page[1] * 0.3));
+        let _ = engine.slide_page_step(PageStep::Next);
+        assert_eq!(engine.slide_in_view(), Some(second));
+        assert!((engine.camera.viewport_center()[1] - page[1] * 1.5).abs() < 1e-6);
+
+        let _ = engine.slide_page_step(PageStep::Previous);
+        assert_eq!(engine.slide_in_view(), Some(first));
+        assert!((engine.camera.viewport_center()[1] - page[1] * 0.5).abs() < 1e-6);
     }
 
     #[test]
