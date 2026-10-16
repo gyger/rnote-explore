@@ -184,6 +184,8 @@ impl Engine {
             .store
             .stroke_keys_as_rendered_intersecting_bounds_partitioned(viewport);
 
+        let live = self.slides.view(self.lecturer_slide_view());
+
         // push clip
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(doc_bounds));
 
@@ -197,7 +199,8 @@ impl Engine {
 
         // bottom image in blend (regular content)
         for &key in non_highlighter_keys.iter() {
-            self.store.draw_stroke_key_to_gtk_snapshot(snapshot, key);
+            self.store
+                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &live);
         }
 
         // top image in blend (highlighter layer)
@@ -205,7 +208,8 @@ impl Engine {
             // pop blend bottom image
             snapshot.pop();
 
-            self.store.draw_stroke_key_to_gtk_snapshot(snapshot, key);
+            self.store
+                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &live);
 
             // pop blend top image
             snapshot.pop();

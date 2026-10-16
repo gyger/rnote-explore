@@ -12,6 +12,7 @@ pub mod trash_comp;
 pub use chrono_comp::ChronoComponent;
 use keytree::KeyTree;
 pub use render_comp::RenderComponent;
+pub(crate) use render_comp::{DrawJob, LiveStrokes};
 pub use selection_comp::SelectionComponent;
 pub use trash_comp::TrashComponent;
 
