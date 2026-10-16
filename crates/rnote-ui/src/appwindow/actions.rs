@@ -112,6 +112,10 @@ impl RnAppWindow {
         self.add_action(&action_import_file);
         let action_import_manim_slides = gio::SimpleAction::new("import-manim-slides", None);
         self.add_action(&action_import_manim_slides);
+        let action_slide_forward = gio::SimpleAction::new("slide-forward", None);
+        self.add_action(&action_slide_forward);
+        let action_slide_back = gio::SimpleAction::new("slide-back", None);
+        self.add_action(&action_slide_back);
         let action_export_doc = gio::SimpleAction::new("export-doc", None);
         self.add_action(&action_export_doc);
         let action_export_doc_pages = gio::SimpleAction::new("export-doc-pages", None);
@@ -1112,6 +1116,28 @@ impl RnAppWindow {
             }
         ));
 
+        // Step through Manim slides, e.g. with a presentation clicker
+        let slide_steps: [(
+            _,
+            fn(&mut rnote_engine::Engine) -> rnote_engine::WidgetFlags,
+        ); 2] = [
+            (&action_slide_forward, rnote_engine::Engine::slide_forward),
+            (&action_slide_back, rnote_engine::Engine::slide_back),
+        ];
+        for (action, step) in slide_steps {
+            action.connect_activate(clone!(
+                #[weak(rename_to=appwindow)]
+                self,
+                move |_, _| {
+                    let Some(canvas) = appwindow.active_tab_canvas() else {
+                        return;
+                    };
+                    let widget_flags = step(&mut canvas.engine_mut());
+                    appwindow.handle_widget_flags(widget_flags, &canvas);
+                }
+            ));
+        }
+
         // Import Manim slides
         action_import_manim_slides.connect_activate(clone!(
             #[weak(rename_to=appwindow)]
@@ -1344,6 +1370,8 @@ impl RnAppWindow {
         app.set_accels_for_action("win.zoom-reset", &["<Ctrl>0", "<Ctrl>KP_0"]);
         app.set_accels_for_action("win.zoom-out", &["<Ctrl>minus", "<Ctrl>KP_Subtract"]);
         app.set_accels_for_action("win.import-file", &["<Ctrl><Shift>i"]);
+        app.set_accels_for_action("win.slide-forward", &["Page_Down"]);
+        app.set_accels_for_action("win.slide-back", &["Page_Up"]);
         app.set_accels_for_action("win.undo", &["<Ctrl>z"]);
         app.set_accels_for_action("win.redo", &["<Ctrl><Shift>z"]);
         app.set_accels_for_action("win.clipboard-copy", &["<Ctrl>c"]);

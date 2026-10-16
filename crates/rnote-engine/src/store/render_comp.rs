@@ -10,6 +10,21 @@ use rnote_compose::ext::AabbExt;
 use rnote_compose::shapes::Shapeable;
 use tracing::error;
 
+/// Strokes drawn live every frame instead of from their rendering, e.g. a playing slide.
+// Only the views of the ui feature draw live strokes.
+#[cfg_attr(not(feature = "ui"), allow(dead_code))]
+pub(crate) trait LiveStrokes {
+    fn is_live(&self, key: StrokeKey) -> bool;
+
+    /// Draw the stroke into `bounds`; `cx` is in document coordinates.
+    fn draw_live(
+        &self,
+        key: StrokeKey,
+        cx: &mut piet_cairo::CairoRenderContext,
+        bounds: Aabb,
+    ) -> anyhow::Result<()>;
+}
+
 /// The tolerance where check between scale-factors are considered "equal".
 pub(crate) const RENDER_IMAGE_SCALE_TOLERANCE: f64 = 0.01;
 
@@ -488,6 +503,7 @@ impl StrokeStore {
         snapshot: &gtk4::Snapshot,
         doc_bounds: Aabb,
         viewport: Aabb,
+        live: &dyn LiveStrokes,
     ) {
         use crate::ext::{GdkRGBAExt, GrapheneRectExt};
         use gtk4::{gdk, graphene, prelude::*};
@@ -496,6 +512,21 @@ impl StrokeStore {
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(doc_bounds));
 
         for key in self.stroke_keys_as_rendered_intersecting_bounds(viewport) {
+            // A live stroke replaces its rendering, at its place in the stacking order.
+            if live.is_live(key)
+                && let Some(stroke) = self.stroke_components.get(key)
+            {
+                let bounds = stroke.bounds();
+                let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
+                let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
+                if let Err(e) = live.draw_live(key, &mut piet_cx, bounds).and_then(|_| {
+                    piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
+                }) {
+                    error!("Drawing live stroke failed, Err: {e:?}");
+                }
+                continue;
+            }
+
             if let Some(stroke) = self.stroke_components.get(key)
                 && let Some(render_comp) = self.render_components.get(key)
             {

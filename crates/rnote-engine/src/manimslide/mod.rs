@@ -18,12 +18,14 @@
 mod draw;
 mod format;
 mod ops;
+mod player;
 mod render;
 mod timeline;
 
 #[cfg(test)]
 mod tests;
 
+pub(crate) use player::{Position, SlidePlayer};
 use render::SlideImages;
 use serde::{Deserialize, Serialize};
 use timeline::Slide;
@@ -57,6 +59,13 @@ impl SlideSource {
             time: slide.duration,
             slide_json,
         })
+    }
+
+    /// The slide and its images, ready to draw at any time.
+    fn decode(&self) -> anyhow::Result<(Slide, SlideImages)> {
+        let slide = Slide::from_json(&self.slide_json)?;
+        let images = SlideImages::decode(&slide)?;
+        Ok((slide, images))
     }
 
     /// The slide at its shown time, drawn once.

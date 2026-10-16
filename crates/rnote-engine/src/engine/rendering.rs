@@ -182,7 +182,7 @@ impl Engine {
         self.draw_format_borders_to_gtk_snapshot(snapshot)?;
         self.draw_origin_indicator_to_gtk_snapshot(snapshot)?;
         self.store
-            .draw_strokes_to_gtk_snapshot(snapshot, doc_bounds, viewport);
+            .draw_strokes_to_gtk_snapshot(snapshot, doc_bounds, viewport, &self.slides);
         self.zoom_window
             .draw_box_to_gtk_snapshot(snapshot, &self.camera);
         self.tablet

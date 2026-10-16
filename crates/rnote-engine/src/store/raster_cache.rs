@@ -109,6 +109,7 @@ impl StrokeStore {
         viewport: Aabb,
         clip: Aabb,
         cache: &RasterCache,
+        live: &dyn super::LiveStrokes,
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
         use gtk4::{graphene, prelude::*};
@@ -127,7 +128,14 @@ impl StrokeStore {
             let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
             piet_cx.transform(camera.transform().to_kurbo());
             piet_cx.clip(clip.to_kurbo_rect());
-            self.draw_keys_immediate(keys, &mut piet_cx, image_scale)?;
+            for &key in keys.iter() {
+                match self.stroke_components.get(key) {
+                    Some(stroke) if live.is_live(key) => {
+                        live.draw_live(key, &mut piet_cx, stroke.bounds())?
+                    }
+                    _ => self.draw_keys_immediate(&[key], &mut piet_cx, image_scale)?,
+                }
+            }
             piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
             keys.clear();
             Ok(())
@@ -139,6 +147,11 @@ impl StrokeStore {
             let Some(stroke) = self.stroke_components.get(key) else {
                 continue;
             };
+            // Live strokes change every frame, so they are never cached.
+            if live.is_live(key) {
+                run.push(key);
+                continue;
+            }
             let Some(node) = cache.node(key, stroke, viewport, image_scale)? else {
                 run.push(key);
                 continue;
