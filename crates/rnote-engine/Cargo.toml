@@ -44,6 +44,7 @@ rodio = { workspace = true, optional = true }
 rough_piet = { workspace = true }
 roughr = { workspace = true }
 roxmltree = { workspace = true }
+ruzstd = { workspace = true }
 rstar = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

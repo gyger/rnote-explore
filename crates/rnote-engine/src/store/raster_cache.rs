@@ -102,6 +102,7 @@ impl RasterCache {
 impl StrokeStore {
     /// Draw `paper` and the strokes in `viewport` for a view without per-stroke renderings.
     /// Finished strokes come from `cache`, the rest is drawn immediate, clipped to `clip`.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_strokes_cached(
         &self,
         snapshot: &gtk4::Snapshot,
@@ -109,6 +110,7 @@ impl StrokeStore {
         viewport: Aabb,
         clip: Aabb,
         cache: &RasterCache,
+        live: &dyn super::LiveStrokes,
         paper: impl FnOnce(&gtk4::Snapshot),
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
@@ -128,7 +130,14 @@ impl StrokeStore {
             let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
             piet_cx.transform(camera.transform().to_kurbo());
             piet_cx.clip(clip.to_kurbo_rect());
-            self.draw_keys_immediate(keys, &mut piet_cx, image_scale)?;
+            for &key in keys.iter() {
+                match self.stroke_components.get(key) {
+                    Some(stroke) if live.is_live(key, stroke) => {
+                        live.draw_live(key, stroke, &mut piet_cx, stroke.bounds())?
+                    }
+                    _ => self.draw_keys_immediate(&[key], &mut piet_cx, image_scale)?,
+                }
+            }
             piet_cx.finish().map_err(|e| anyhow::anyhow!("{e:?}"))?;
             keys.clear();
             Ok(())
@@ -142,6 +151,11 @@ impl StrokeStore {
                     let Some(stroke) = self.stroke_components.get(key) else {
                         continue;
                     };
+                    // Live strokes change every frame, so they are never cached.
+                    if live.is_live(key, stroke) {
+                        run.push(key);
+                        continue;
+                    }
                     let Some(node) = cache.node(key, stroke, viewport, image_scale)? else {
                         run.push(key);
                         continue;
@@ -215,6 +229,24 @@ mod tests {
         assert_eq!(held.bounds(), bounds);
     }
 
+    struct NoLive;
+
+    impl crate::store::LiveStrokes for NoLive {
+        fn is_live(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
+            false
+        }
+
+        fn draw_live(
+            &self,
+            _key: StrokeKey,
+            _stroke: &Stroke,
+            _cx: &mut piet_cairo::CairoRenderContext,
+            _bounds: Aabb,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
     /// Whether the node tree holds a multiply blend, e.g. `Clip > Blend(Multiply) > ..`.
     fn has_multiply(node: &gsk::RenderNode) -> bool {
         if let Some(blend) = node.downcast_ref::<gsk::BlendNode>() {
@@ -259,6 +291,7 @@ mod tests {
                 viewport,
                 viewport,
                 &RasterCache::default(),
+                &NoLive,
                 |_| {},
             )
             .unwrap();

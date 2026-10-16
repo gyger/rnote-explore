@@ -4,6 +4,7 @@ mod appsettings;
 mod imp;
 
 // Imports
+use crate::penssidebar::SlidePauseButton;
 use crate::{
     FileType, RnApp, RnCanvas, RnCanvasWrapper, RnMainHeader, RnOverlays, RnPresentationWindow,
     RnSidebar, config, dialogs, env,
@@ -27,10 +28,11 @@ use std::time::Duration;
 use tracing::{debug, error};
 
 /// Actions acting on the audience window, disabled and reset while it is closed.
-const PRESENTATION_TOGGLES: [&str; 3] = [
+const PRESENTATION_TOGGLES: [&str; 4] = [
     "presentation-lock-page",
     "presentation-freeze",
     "presentation-blank",
+    "presentation-first-column",
 ];
 
 /// Drawing pad buttons, as labelled by the main window's pad controller.
@@ -420,6 +422,16 @@ impl RnAppWindow {
             .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
     }
 
+    /// Let the pause button show Play while the slide in view is held.
+    fn refresh_slide_pause(&self, canvas: &RnCanvas) {
+        let mode = if canvas.engine_ref().slide_held() {
+            SlidePauseButton::Play
+        } else {
+            SlidePauseButton::Pause
+        };
+        self.overlays().penssidebar().set_slide_pause_button(mode);
+    }
+
     /// Move the audience window to the next display.
     pub(crate) fn flip_presentation_screen(&self) {
         let Some(window) = self
@@ -467,6 +479,7 @@ impl RnAppWindow {
         if widget_flags.redraw {
             canvas.queue_draw();
             self.overlays().zoomwindow().queue_redraw();
+            self.refresh_slide_pause(canvas);
         }
         // The audience camera follows the lecturer's page, so scrolling concerns it too.
         if widget_flags.redraw || widget_flags.view_modified {
