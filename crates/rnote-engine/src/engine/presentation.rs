@@ -94,7 +94,7 @@ impl Engine {
             page,
             page,
             &self.audience_rasters,
-            &self.slides,
+            &self.slides.view(crate::manimslide::SlideView::Audience),
         )?;
 
         self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;

@@ -145,7 +145,7 @@ impl Engine {
                 viewport,
                 doc_bounds,
                 &self.zoom_rasters,
-                &self.slides,
+                &self.slides.view(self.lecturer_slide_view()),
             )?;
 
         let engine_view = EngineView {

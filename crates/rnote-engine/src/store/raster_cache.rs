@@ -130,8 +130,8 @@ impl StrokeStore {
             piet_cx.clip(clip.to_kurbo_rect());
             for &key in keys.iter() {
                 match self.stroke_components.get(key) {
-                    Some(stroke) if live.is_live(key) => {
-                        live.draw_live(key, &mut piet_cx, stroke.bounds())?
+                    Some(stroke) if live.is_live(key, stroke) => {
+                        live.draw_live(key, stroke, &mut piet_cx, stroke.bounds())?
                     }
                     _ => self.draw_keys_immediate(&[key], &mut piet_cx, image_scale)?,
                 }
@@ -148,7 +148,7 @@ impl StrokeStore {
                 continue;
             };
             // Live strokes change every frame, so they are never cached.
-            if live.is_live(key) {
+            if live.is_live(key, stroke) {
                 run.push(key);
                 continue;
             }

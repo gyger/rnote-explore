@@ -1,4 +1,5 @@
 // Imports
+use super::slides::LecturerSlides;
 use super::{ExportPrefs, ImportPrefs};
 use crate::pens::PensConfig;
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,8 @@ pub struct EngineConfig {
     pub optimize_epd: bool,
     #[serde(rename = "snap_positions")]
     pub snap_positions: bool,
+    #[serde(rename = "lecturer_slides")]
+    pub lecturer_slides: LecturerSlides,
     #[serde(skip)]
     pub visual_debug: bool,
 }
@@ -56,6 +59,7 @@ impl EngineConfigShared {
         write.pen_sounds = config.pen_sounds;
         write.optimize_epd = config.optimize_epd;
         write.snap_positions = config.snap_positions;
+        write.lecturer_slides = config.lecturer_slides;
         write.visual_debug = config.visual_debug;
     }
 }

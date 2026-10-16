@@ -1,22 +1,44 @@
 //! Manim slide control: one slide per page, stepped like a deck.
 //!
 //! ```text
-//!  forward:  still/start ─► play ─► (playing) finish ─► (end) next page, play its slide
+//!  forward:  unplayed/start ─► play ─► (playing) finish ─► (end) next page, play its slide
 //!  back:     playing/middle/end ─► rewind ─► (start) previous page, its slide at the end
 //! ```
 //!
-//! A clicker sends forward and back, so a lecture runs on two buttons.
+//! A slide reached by scrolling waits at its start for the first forward;
+//! one reached by forward plays at once. A clicker sends forward and back,
+//! so a lecture runs on two buttons.
 
 // Imports
 use crate::WidgetFlags;
 use crate::engine::Engine;
-use crate::manimslide::Position;
+use crate::manimslide::{Position, SlideView};
+use crate::pens::PenStyle;
 use crate::store::StrokeKey;
 use crate::strokes::Stroke;
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
+use rnote_compose::penevent::{KeyboardKey, ModifierKey};
 use rnote_compose::shapes::Shapeable;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use tracing::error;
+
+/// Key that steps forward, with Shift back, as in the browser player.
+const STEP_KEY: char = ' ';
+
+/// What the lecturer's own screen shows of the slides the audience sees animate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename = "lecturer_slides")]
+pub enum LecturerSlides {
+    /// The finished slide, like presenter notes: what is coming and where to write.
+    #[default]
+    #[serde(rename = "end_state")]
+    EndState,
+    /// The same animation as the audience.
+    #[serde(rename = "animate")]
+    Animate,
+}
 
 /// Direction of a page step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +55,7 @@ impl Engine {
         };
 
         match self.slides.position(key) {
-            Position::Still => self.slide_play(key),
+            Position::Unplayed => self.slide_play(key),
             Position::Start | Position::Middle => {
                 self.slides.resume(key);
                 self.slide_frames()
@@ -42,10 +64,7 @@ impl Engine {
                 self.slides.finish(key);
                 redraw()
             }
-            Position::Playing | Position::End => {
-                self.slides.stop(key);
-                self.slide_page_step(PageStep::Next)
-            }
+            Position::Playing | Position::End => self.slide_page_step(PageStep::Next),
         }
     }
 
@@ -60,11 +79,30 @@ impl Engine {
                 self.slides.rewind(key);
                 redraw()
             }
-            Position::Still | Position::Start => {
-                self.slides.stop(key);
-                self.slide_page_step(PageStep::Previous)
-            }
+            Position::Unplayed | Position::Start => self.slide_page_step(PageStep::Previous),
         }
+    }
+
+    /// Step with the Space key: forward, with Shift back. `None` when the key is not for slides.
+    ///
+    /// The typewriter keeps Space for typing.
+    pub fn slide_key(
+        &mut self,
+        key: &KeyboardKey,
+        modifiers: &HashSet<ModifierKey>,
+    ) -> Option<WidgetFlags> {
+        if *key != KeyboardKey::Unicode(STEP_KEY)
+            || self.current_pen_style_w_override() == PenStyle::Typewriter
+            || modifiers.contains(&ModifierKey::KeyboardCtrl)
+            || modifiers.contains(&ModifierKey::KeyboardAlt)
+        {
+            return None;
+        }
+
+        if modifiers.contains(&ModifierKey::KeyboardShift) {
+            return Some(self.slide_back());
+        }
+        Some(self.slide_forward())
     }
 
     /// Advance playing slides; call on every animation frame.
@@ -80,7 +118,12 @@ impl Engine {
         if !result.advance {
             return redraw();
         }
-        redraw() | self.slide_forward()
+        redraw() | self.slide_page_step(PageStep::Next)
+    }
+
+    /// How the main canvas and the zoom window show slides.
+    pub(crate) fn lecturer_slide_view(&self) -> SlideView {
+        SlideView::Lecturer(self.config.read().lecturer_slides)
     }
 
     /// The topmost slide under the center of the view.
@@ -116,13 +159,28 @@ impl Engine {
         self.slide_frames()
     }
 
+    /// Show the end state of the slide in view, as when stepping back onto it.
+    fn slide_show_end(&mut self, key: StrokeKey) -> WidgetFlags {
+        let Some(Stroke::VectorImage(image)) = self.store.get_stroke_ref(key) else {
+            return WidgetFlags::default();
+        };
+        let Some(source) = image.manim_slide.as_ref() else {
+            return WidgetFlags::default();
+        };
+
+        if let Err(e) = self.slides.show_end(key, source) {
+            error!("Showing Manim slide failed, Err: {e:?}");
+        }
+        redraw()
+    }
+
     /// Start the frame loop of playing slides.
     fn slide_frames(&mut self) -> WidgetFlags {
         self.animation.claim_frame();
         redraw()
     }
 
-    /// Move the view by one page; a slide on the next page starts playing.
+    /// Move the view by one page: the next page's slide plays, the previous one shows its end.
     fn slide_page_step(&mut self, step: PageStep) -> WidgetFlags {
         let page_height = self.document.config.format.height() * self.camera.total_zoom();
         let delta = match step {
@@ -131,13 +189,16 @@ impl Engine {
         };
 
         let offset = self.camera.offset() + Vector2::new(0.0, delta);
-        let mut widget_flags = self.camera_set_offset_expand(offset);
-        if step == PageStep::Next
-            && let Some(key) = self.slide_in_view()
-        {
-            widget_flags |= self.slide_play(key);
-        }
+        let widget_flags = self.camera_set_offset_expand(offset);
+        let Some(key) = self.slide_in_view() else {
+            return widget_flags;
+        };
+
         widget_flags
+            | match step {
+                PageStep::Next => self.slide_play(key),
+                PageStep::Previous => self.slide_show_end(key),
+            }
     }
 }
 
@@ -180,9 +241,10 @@ mod tests {
     }
 
     #[test]
-    fn forward_plays_finishes_then_turns_the_page() {
+    fn forward_plays_finishes_then_plays_the_next_page() {
         let (mut engine, [first, second]) = engine_with_slides();
         assert_eq!(engine.slide_in_view(), Some(first));
+        assert_eq!(engine.slides.position(first), Position::Unplayed);
 
         let _ = engine.slide_forward();
         assert_eq!(engine.slides.position(first), Position::Playing);
@@ -191,13 +253,13 @@ mod tests {
         assert_eq!(engine.slides.position(first), Position::End);
 
         let _ = engine.slide_forward();
-        assert_eq!(engine.slides.position(first), Position::Still);
+        assert_eq!(engine.slides.position(first), Position::End);
         assert_eq!(engine.slide_in_view(), Some(second));
         assert_eq!(engine.slides.position(second), Position::Playing);
     }
 
     #[test]
-    fn back_rewinds_then_returns_a_page() {
+    fn back_rewinds_then_returns_to_the_previous_end() {
         let (mut engine, [first, second]) = engine_with_slides();
         let _ = engine.slide_forward();
         let _ = engine.slide_forward();
@@ -207,7 +269,19 @@ mod tests {
         assert_eq!(engine.slides.position(second), Position::Start);
 
         let _ = engine.slide_back();
-        assert_eq!(engine.slides.position(second), Position::Still);
         assert_eq!(engine.slide_in_view(), Some(first));
+        assert_eq!(engine.slides.position(first), Position::End);
+    }
+
+    #[test]
+    fn space_steps_except_while_typing() {
+        let (mut engine, [first, _]) = engine_with_slides();
+        let space = KeyboardKey::Unicode(STEP_KEY);
+
+        assert!(engine.slide_key(&space, &HashSet::new()).is_some());
+        assert_eq!(engine.slides.position(first), Position::Playing);
+
+        let _ = engine.change_pen_style(PenStyle::Typewriter);
+        assert!(engine.slide_key(&space, &HashSet::new()).is_none());
     }
 }

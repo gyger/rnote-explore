@@ -14,12 +14,13 @@ use tracing::error;
 // Only the views of the ui feature draw live strokes.
 #[cfg_attr(not(feature = "ui"), allow(dead_code))]
 pub(crate) trait LiveStrokes {
-    fn is_live(&self, key: StrokeKey) -> bool;
+    fn is_live(&self, key: StrokeKey, stroke: &Stroke) -> bool;
 
     /// Draw the stroke into `bounds`; `cx` is in document coordinates.
     fn draw_live(
         &self,
         key: StrokeKey,
+        stroke: &Stroke,
         cx: &mut piet_cairo::CairoRenderContext,
         bounds: Aabb,
     ) -> anyhow::Result<()>;
@@ -513,15 +514,19 @@ impl StrokeStore {
 
         for key in self.stroke_keys_as_rendered_intersecting_bounds(viewport) {
             // A live stroke replaces its rendering, at its place in the stacking order.
-            if live.is_live(key)
-                && let Some(stroke) = self.stroke_components.get(key)
+            if let Some(stroke) = self.stroke_components.get(key)
+                && live.is_live(key, stroke)
             {
                 let bounds = stroke.bounds();
                 let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
                 let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
-                if let Err(e) = live.draw_live(key, &mut piet_cx, bounds).and_then(|_| {
-                    piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
-                }) {
+                if let Err(e) = live
+                    .draw_live(key, stroke, &mut piet_cx, bounds)
+                    .and_then(|_| {
+                        piet::RenderContext::finish(&mut piet_cx)
+                            .map_err(|e| anyhow::anyhow!("{e:?}"))
+                    })
+                {
                     error!("Drawing live stroke failed, Err: {e:?}");
                 }
                 continue;

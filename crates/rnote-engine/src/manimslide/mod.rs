@@ -25,7 +25,7 @@ mod timeline;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use player::{Position, SlidePlayer};
+pub(crate) use player::{Position, SlidePlayer, SlideView};
 use render::SlideImages;
 use serde::{Deserialize, Serialize};
 use timeline::Slide;
