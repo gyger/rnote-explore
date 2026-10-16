@@ -5,6 +5,7 @@ use crate::WidgetFlags;
 use crate::engine::Engine;
 #[cfg(feature = "ui")]
 use crate::engine::EngineView;
+use crate::presentation::AudienceColumn;
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 
@@ -17,6 +18,11 @@ impl Engine {
     /// Set the audience window size in surface pixels.
     pub fn presentation_set_size(&mut self, size: Vector2, scale_factor: f64) -> WidgetFlags {
         self.presentation.set_size(size, scale_factor)
+    }
+
+    /// Show the audience the lecturer's page, or the first column of the lecturer's row.
+    pub fn presentation_set_audience_column(&mut self, column: AudienceColumn) -> WidgetFlags {
+        self.presentation.set_column(column)
     }
 
     pub fn presentation_set_blanked(&mut self, blanked: bool) -> WidgetFlags {
@@ -97,6 +103,7 @@ impl Engine {
             page,
             page,
             &self.audience_rasters,
+            &self.slides.view(crate::manimslide::SlideView::Audience),
             paper,
         )?;
 
@@ -167,6 +174,25 @@ mod tests {
         let _ = engine.camera.set_viewport_center(page_size * 0.5);
 
         assert_eq!(engine.lecturer_page().mins, Vector2::ZERO);
+    }
+
+    #[test]
+    fn first_column_shows_the_lecturers_row() {
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        let page_size = engine.document.config.format.size();
+        engine.document.width = page_size[0] * 2.0;
+        engine.document.height = page_size[1] * 2.0;
+        let _ = engine.presentation_set_audience_column(AudienceColumn::First);
+
+        // The lecturer looks at column 2 of row 2.
+        let _ = engine
+            .camera
+            .set_viewport_center(Vector2::new(page_size[0] * 1.5, page_size[1] * 1.5));
+        assert_eq!(engine.audience_page().mins, Vector2::new(0.0, page_size[1]));
+
+        let _ = engine.presentation_set_audience_column(AudienceColumn::Follow);
+        assert_eq!(engine.audience_page().mins, page_size);
     }
 
     #[test]

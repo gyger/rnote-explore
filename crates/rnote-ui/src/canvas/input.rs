@@ -287,6 +287,14 @@ pub(crate) fn handle_key_controller_key_pressed(
     let modifier_keys = retrieve_modifier_keys(gdk_modifiers);
     let shortcut_key = retrieve_keyboard_shortcut_key(gdk_key, gdk_modifiers);
 
+    // Space steps through Manim slides unless it is typed. The engine borrow ends before the
+    // flags are handled: handling them reads the engine.
+    let slide_step = canvas.engine_mut().slide_key(&keyboard_key, &modifier_keys);
+    if let Some(widget_flags) = slide_step {
+        canvas.emit_handle_widget_flags(widget_flags);
+        return glib::Propagation::Stop;
+    }
+
     let (propagation, widget_flags) = if let Some(shortcut_key) = shortcut_key {
         canvas
             .engine_mut()
