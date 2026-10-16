@@ -139,7 +139,14 @@ impl Engine {
         snapshot.restore();
 
         self.store
-            .draw_strokes_cached(snapshot, camera, viewport, doc_bounds, &self.zoom_rasters)?;
+            .draw_strokes_cached(
+                snapshot,
+                camera,
+                viewport,
+                doc_bounds,
+                &self.zoom_rasters,
+                &self.slides.view(self.lecturer_slide_view()),
+            )?;
 
         let engine_view = EngineView {
             tasks_tx: self.tasks_tx.clone(),
