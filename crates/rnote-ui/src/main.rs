@@ -24,6 +24,7 @@ pub(crate) mod globals;
 pub(crate) mod groupediconpicker;
 pub(crate) mod iconpicker;
 pub(crate) mod mainheader;
+pub(crate) mod manimgx;
 pub(crate) mod overlays;
 pub(crate) mod penpicker;
 pub(crate) mod penssidebar;
