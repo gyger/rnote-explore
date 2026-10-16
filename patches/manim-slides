@@ -1,0 +1,47 @@
+Bottom: 8d852c00939083cad78484c8116eb8acf3700b93
+Top:    8d852c00939083cad78484c8116eb8acf3700b93
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-10-16 18:00:20 +0200
+
+Present Manim slides natively
+
+Purpose: lecture with Manim slides inside Rnote: import the slides of a
+deck, write on them, and step through their animations on the
+projector. Slides come from a Manim fork whose vector backend writes
+each slide as a .slide.json timeline (spec: slide-format.md in that
+fork, reference evaluator SlideTimeline.evaluate). No browser engine:
+the timeline is a pure function of time t.
+
+Behaviour:
+- Main menu "Import Manim Slides": multi-select .slide.json files, one
+  slide per page from the page in view, on the document layer, so ink
+  goes on top.
+- Space/PageDown forward, Shift+Space/PageUp back, also from the
+  presentation window; buttons in the presentation controls. Forward
+  plays, finishes while playing, and at the end centers the next page
+  and plays its slide. A slide reached by scrolling waits at its start.
+  Back rewinds, then shows the previous page at its end. The typewriter
+  keeps Space for typing.
+- The audience always sees slides animate, unplayed ones at their
+  start. The lecturer's screen shows the end state, like presenter
+  notes, unless Settings > General "Animate Slides on This Screen".
+- "Update Manim Slides": re-rendered files replace slides of the same
+  section name in place, ink kept, one undo step.
+
+Approach:
+- crates/rnote-engine/src/manimslide/: format (unpack), timeline
+  (evaluate), ops (arc, partial), draw (paint), render (piet). Tests
+  compare against fixtures and PNGs of the Python reference
+  (tests/data/manimslide; RNOTE_MANIM_FIXTURES checks whole decks).
+- Storage: VectorImage.manim_slide (optional) holds the slide file
+  verbatim (Arc<str>), its time and source file; svg_data is the end
+  frame, so readers without slide support still show it.
+- Playback state lives in SlidePlayer beside the store, not in the
+  strokes. The store draw loops of all views ask it through the
+  LiveStrokes trait and draw live slides at their stacking place.
+
+Constraints: builds on dual-screen and projector-tablet (presentation
+window, raster cache). Developed further on branch exp-manim-slides.
+File format: additive optional field only.
+
+Assisted by: Claude Code / Opus 5.5
