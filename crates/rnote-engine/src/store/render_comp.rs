@@ -10,6 +10,35 @@ use rnote_compose::ext::AabbExt;
 use rnote_compose::shapes::Shapeable;
 use tracing::error;
 
+/// Strokes drawn live every frame instead of from their rendering, e.g. a playing slide.
+// Only the views of the ui feature draw live strokes.
+#[cfg_attr(not(feature = "ui"), allow(dead_code))]
+pub(crate) trait LiveStrokes {
+    fn is_live(&self, key: StrokeKey, stroke: &Stroke) -> bool;
+
+    /// What a live stroke shows while it stands still, e.g. a slide halted at a stop: equal
+    /// ids draw the same picture, so it can be kept. `None` while it changes every frame.
+    fn still_frame(&self, key: StrokeKey, stroke: &Stroke) -> Option<u64>;
+
+    /// Draw the stroke into `bounds`; `cx` is in document coordinates.
+    fn draw_live(
+        &self,
+        key: StrokeKey,
+        stroke: &Stroke,
+        cx: &mut piet_cairo::CairoRenderContext,
+        bounds: Aabb,
+    ) -> anyhow::Result<()>;
+
+    /// The still frame the stroke stands on as a job for another thread: it draws what
+    /// `draw_live` would. `None` if it cannot be drawn.
+    fn still_job(&self, key: StrokeKey, stroke: &Stroke) -> Option<DrawJob>;
+}
+
+/// Draws into the given bounds; `cx` is in document coordinates. Made on the UI thread, run on
+/// another.
+pub(crate) type DrawJob =
+    Box<dyn FnOnce(&mut piet_cairo::CairoRenderContext, Aabb) -> anyhow::Result<()> + Send>;
+
 /// The tolerance where check between scale-factors are considered "equal".
 pub(crate) const RENDER_IMAGE_SCALE_TOLERANCE: f64 = 0.01;
 /// The factor for which the rendering for the current viewport is extended by.
@@ -493,10 +522,31 @@ impl StrokeStore {
         &self,
         snapshot: &gtk4::Snapshot,
         key: StrokeKey,
+        canvas: &super::raster_cache::LiveCanvas,
     ) {
+        use super::raster_cache::LiveNode;
         use crate::ext::{GdkRGBAExt, GrapheneRectExt};
         use gtk4::{gdk, graphene, prelude::*};
         use rnote_compose::color;
+
+        // A live stroke replaces its rendering, at its place in the stacking order.
+        if let Some(stroke) = self.stroke_components.get(key)
+            && canvas.live.is_live(key, stroke)
+        {
+            match self.live_still_node(key, stroke, canvas) {
+                // Standing still, e.g. a halted slide scrolled past.
+                LiveNode::Still(node) => {
+                    snapshot.append_node(&node);
+                    return;
+                }
+                // Its still frame is on the way: the rendering below stands in.
+                LiveNode::Pending => {}
+                LiveNode::Moving => {
+                    draw_live_immediate(snapshot, key, stroke, canvas.live);
+                    return;
+                }
+            }
+        }
 
         if let Some(stroke) = self.stroke_components.get(key)
             && let Some(render_comp) = self.render_components.get(key)
@@ -652,5 +702,29 @@ impl StrokeStore {
         }
 
         Ok(())
+    }
+}
+
+/// Draw a moving live stroke, e.g. a playing slide, for this frame only.
+#[cfg(feature = "ui")]
+fn draw_live_immediate(
+    snapshot: &gtk4::Snapshot,
+    key: StrokeKey,
+    stroke: &Stroke,
+    live: &dyn LiveStrokes,
+) {
+    use crate::ext::GrapheneRectExt;
+    use gtk4::{graphene, prelude::*};
+
+    let bounds = stroke.bounds();
+    let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
+    let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
+    if let Err(e) = live
+        .draw_live(key, stroke, &mut piet_cx, bounds)
+        .and_then(|_| {
+            piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
+        })
+    {
+        error!("Drawing live stroke failed, Err: {e:?}");
     }
 }
