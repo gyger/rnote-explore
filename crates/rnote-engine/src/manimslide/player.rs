@@ -3,19 +3,23 @@
 //! Kept beside the store, not in the strokes: changing a stroke every frame
 //! would copy it and the stroke map, and dirty the undo history.
 //!
+//! A slide plays in parts, split by its click stops (slide-format.md, 9.1):
+//!
 //! ```text
-//!   unplayed ──play──► playing ──finish/end──► paused at end
-//!   (t = 0)              │  ▲                     │
-//!                    pause│  │resume          rewind
-//!                        ▼  │                     ▼
-//!                      paused ◄──────────────── paused at 0
+//!   stops = [1, 2]        part 0    part 1    part 2
+//!                       |---------|---------|---------|
+//!                       0         1         2      duration
+//!
+//!   forward: play to the next stop and halt there; while playing, jump to the
+//!            part's end (a looped part: end the loop and play on); at the end, leave
+//!   back:    halt at the last stop before now; at 0, leave
 //! ```
 //!
 //! Each view asks through [SlideView] how to show slides: the audience
 //! always sees them live, the lecturer as configured.
 
 use super::SlideSource;
-use super::render::SlideImages;
+use super::render::Cues;
 use super::timeline::Slide;
 use crate::engine::slides::LecturerSlides;
 use crate::store::{LiveStrokes, StrokeKey};
@@ -37,11 +41,20 @@ pub(crate) enum Position {
     Unplayed,
     Playing,
     Start,
+    /// Halted inside the slide: at a stop or paused.
     Middle,
     End,
 }
 
-/// A view that draws slides.
+/// Whether a step stays on the slide or leaves it for the neighbouring page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    Stay,
+    Leave,
+}
+
+/// A view that draws slides; only the views of the ui feature draw them.
+#[cfg_attr(not(feature = "ui"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SlideView {
     /// The main canvas and the zoom window.
@@ -64,18 +77,22 @@ pub(crate) struct FrameResult {
 #[derive(Debug, Clone, Copy)]
 enum Clock {
     Paused(f64),
-    Playing { since: Instant, from: f64 },
+    /// Playing the part that contains `from` since `since`.
+    Playing {
+        since: Instant,
+        from: f64,
+    },
 }
 
 #[derive(Debug)]
 struct Decoded {
-    /// The slide text this was decoded from; an updated or undone slide has another.
-    text: Arc<str>,
-    slide: Slide,
-    images: SlideImages,
+    /// The take this was decoded from; an updated or undone slide has another.
+    take: Arc<str>,
+    slide: Arc<Slide>,
 }
 
 impl Decoded {
+    /// A slide of type `loop` repeats as a whole and never ends.
     fn looping(&self) -> bool {
         self.slide.kind.to_lowercase().contains(TYPE_LOOP)
     }
@@ -84,18 +101,37 @@ impl Decoded {
         self.slide.kind.to_lowercase().contains(TYPE_SKIP)
     }
 
-    /// Slide time of `clock` at `now`: clamped to the slide, or wrapped for looping ones.
+    /// Slide time of `clock` at `now`. Playing stays within its part: a looped part
+    /// wraps, any other halts at its end.
     fn time_at(&self, clock: Clock, now: Instant) -> f64 {
         let duration = self.slide.duration;
-        let t = match clock {
-            Clock::Paused(t) => t,
-            Clock::Playing { since, from } => from + now.duration_since(since).as_secs_f64(),
+        let (since, from) = match clock {
+            Clock::Paused(t) => return t,
+            Clock::Playing { since, from } => (since, from),
         };
+        let t = from + now.duration_since(since).as_secs_f64();
 
         if self.looping() && duration > 0.0 {
             return t % duration;
         }
-        t.clamp(0.0, duration)
+        let part = self.slide.part_at(from);
+        let (start, end) = self.slide.part_range(part);
+        if self.slide.part_loops(part) && end > start {
+            return start + (t - start) % (end - start);
+        }
+        t.min(end)
+    }
+
+    /// The end of the part `clock` plays, or `None` when it never halts.
+    fn halting_end(&self, clock: Clock) -> Option<f64> {
+        let Clock::Playing { from, .. } = clock else {
+            return None;
+        };
+        let part = self.slide.part_at(from);
+        if self.looping() || self.slide.part_loops(part) {
+            return None;
+        }
+        Some(self.slide.part_range(part).1)
     }
 }
 
@@ -107,10 +143,13 @@ pub(crate) struct SlidePlayer {
     decoded: RefCell<HashMap<StrokeKey, Arc<Decoded>>>,
 }
 
-/// The slide a stroke shows, if it is one.
+/// The live slide a stroke shows, if it is one. Notes copies stay still frames.
 fn slide_source(stroke: &Stroke) -> Option<&SlideSource> {
     match stroke {
-        Stroke::VectorImage(image) => image.manim_slide.as_ref(),
+        Stroke::VectorImage(image) => image
+            .manim_slide
+            .as_ref()
+            .filter(|source| !source.is_notes_copy()),
         _ => None,
     }
 }
@@ -118,16 +157,17 @@ fn slide_source(stroke: &Stroke) -> Option<&SlideSource> {
 impl SlidePlayer {
     fn decoded(&self, key: StrokeKey, source: &SlideSource) -> anyhow::Result<Arc<Decoded>> {
         if let Some(decoded) = self.decoded.borrow().get(&key)
-            && source.is_same_text(&decoded.text)
+            && source.is_same_take(&decoded.take)
         {
             return Ok(Arc::clone(decoded));
         }
 
-        let (slide, images) = source.decode()?;
         let decoded = Arc::new(Decoded {
-            text: Arc::clone(&source.slide_json),
-            slide,
-            images,
+            slide: source.slide()?,
+            take: source
+                .take
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("a notes copy is not played"))?,
         });
         self.decoded.borrow_mut().insert(key, Arc::clone(&decoded));
         Ok(decoded)
@@ -151,18 +191,31 @@ impl SlidePlayer {
         }
     }
 
-    pub(crate) fn looping(&self, key: StrokeKey) -> bool {
-        self.played(key).is_some_and(|d| d.looping())
+    /// Slide time of a played slide at `now`.
+    pub(crate) fn time_at(&self, key: StrokeKey, now: Instant) -> Option<f64> {
+        let decoded = self.played(key)?;
+        Some(decoded.time_at(*self.clocks.get(&key)?, now))
     }
 
     /// Play `source` from its start.
     pub(crate) fn play(&mut self, key: StrokeKey, source: &SlideSource) -> anyhow::Result<()> {
+        self.play_at(key, source, Instant::now())
+    }
+
+    pub(crate) fn play_at(
+        &mut self,
+        key: StrokeKey,
+        source: &SlideSource,
+        now: Instant,
+    ) -> anyhow::Result<()> {
         self.decoded(key, source)?;
-        let clock = Clock::Playing {
-            since: Instant::now(),
-            from: 0.0,
-        };
-        self.clocks.insert(key, clock);
+        self.clocks.insert(
+            key,
+            Clock::Playing {
+                since: now,
+                from: 0.0,
+            },
+        );
         Ok(())
     }
 
@@ -171,6 +224,78 @@ impl SlidePlayer {
         let duration = self.decoded(key, source)?.slide.duration;
         self.clocks.insert(key, Clock::Paused(duration));
         Ok(())
+    }
+
+    /// Step a played slide forward: play to the next stop, finish the part playing, or
+    /// leave it once it has ended.
+    pub(crate) fn forward(&mut self, key: StrokeKey) -> Step {
+        self.forward_at(key, Instant::now())
+    }
+
+    pub(crate) fn forward_at(&mut self, key: StrokeKey, now: Instant) -> Step {
+        let (Some(clock), Some(decoded)) = (self.clocks.get(&key).copied(), self.played(key))
+        else {
+            return Step::Leave;
+        };
+        let slide = &decoded.slide;
+
+        let next = match clock {
+            Clock::Paused(t) if t >= slide.duration => return Step::Leave,
+            Clock::Paused(t) => Clock::Playing {
+                since: now,
+                from: t,
+            },
+            Clock::Playing { from, .. } => {
+                let part = slide.part_at(from);
+                let end = slide.part_range(part).1;
+                let looped = slide.part_loops(part);
+
+                if decoded.looping() || (looped && end >= slide.duration) {
+                    return Step::Leave;
+                }
+                if looped {
+                    Clock::Playing {
+                        since: now,
+                        from: end,
+                    }
+                } else {
+                    Clock::Paused(end)
+                }
+            }
+        };
+        self.clocks.insert(key, next);
+        Step::Stay
+    }
+
+    /// Step a played slide back: halt at the last stop before now, or leave it at its start.
+    pub(crate) fn back(&mut self, key: StrokeKey) -> Step {
+        self.back_at(key, Instant::now())
+    }
+
+    pub(crate) fn back_at(&mut self, key: StrokeKey, now: Instant) -> Step {
+        let Some(t) = self.time_at(key, now) else {
+            return Step::Leave;
+        };
+        if t <= 0.0 {
+            return Step::Leave;
+        }
+
+        let Some(decoded) = self.played(key) else {
+            return Step::Leave;
+        };
+        self.clocks
+            .insert(key, Clock::Paused(decoded.slide.bound_before(t)));
+        Step::Stay
+    }
+
+    /// Hold a playing slide at the frame it shows now.
+    pub(crate) fn pause(&mut self, key: StrokeKey) {
+        let now = Instant::now();
+        if let Some(t) = self.time_at(key, now)
+            && let Some(clock @ Clock::Playing { .. }) = self.clocks.get_mut(&key)
+        {
+            *clock = Clock::Paused(t);
+        }
     }
 
     /// Go on from where a paused slide stopped.
@@ -185,36 +310,23 @@ impl SlidePlayer {
         }
     }
 
-    /// Jump a played slide to its end state.
-    pub(crate) fn finish(&mut self, key: StrokeKey) {
-        let Some(decoded) = self.played(key) else {
-            return;
-        };
-        self.clocks
-            .insert(key, Clock::Paused(decoded.slide.duration));
-    }
-
-    /// Show the start state of a played slide.
-    pub(crate) fn rewind(&mut self, key: StrokeKey) {
-        if let Some(clock) = self.clocks.get_mut(&key) {
-            *clock = Clock::Paused(0.0);
-        }
-    }
-
     /// Forget a slide's playback, e.g. after its slide data changed: it shows its start again.
     pub(crate) fn forget(&mut self, key: StrokeKey) {
         self.clocks.remove(&key);
         self.decoded.borrow_mut().remove(&key);
     }
 
-    /// Advance the clocks: slides that reached their end stop there.
+    /// Advance the clocks: slides halt at the end of the part they play.
     pub(crate) fn frame(&mut self) -> FrameResult {
-        let now = Instant::now();
+        self.frame_at(Instant::now())
+    }
+
+    pub(crate) fn frame_at(&mut self, now: Instant) -> FrameResult {
         let mut result = FrameResult::default();
         let decoded = self.decoded.borrow();
 
         for (key, clock) in self.clocks.iter_mut() {
-            let Clock::Playing { .. } = *clock else {
+            let Clock::Playing { since, from } = *clock else {
                 continue;
             };
             let Some(decoded) = decoded.get(key) else {
@@ -222,19 +334,23 @@ impl SlidePlayer {
             };
             result.redraw = true;
 
-            let duration = decoded.slide.duration;
-            if decoded.looping() || decoded.time_at(*clock, now) < duration {
+            let Some(end) = decoded.halting_end(*clock) else {
+                result.playing = true;
+                continue;
+            };
+            if from + now.duration_since(since).as_secs_f64() < end {
                 result.playing = true;
                 continue;
             }
 
-            *clock = Clock::Paused(duration);
-            result.advance |= decoded.skipping();
+            *clock = Clock::Paused(end);
+            result.advance |= end >= decoded.slide.duration && decoded.skipping();
         }
         result
     }
 
     /// How `view` draws slides.
+    #[cfg_attr(not(feature = "ui"), allow(dead_code))]
     pub(crate) fn view(&self, view: SlideView) -> ViewSlides<'_> {
         ViewSlides { player: self, view }
     }
@@ -275,6 +391,10 @@ impl LiveStrokes for ViewSlides<'_> {
             bounds.maxs[0],
             bounds.maxs[1],
         );
-        decoded.slide.draw_at(cx, &decoded.images, t, target)
+        let cues = match self.view {
+            SlideView::Audience => Cues::Hidden,
+            SlideView::Lecturer(_) => source.cues(),
+        };
+        decoded.slide.draw_at(cx, t, target, cues)
     }
 }

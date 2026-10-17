@@ -1,11 +1,18 @@
-//! The slide model and its evaluation at a time (slide-format.md, sections 7 and 8).
+//! The slide model and its evaluation at a time.
+//!
+//! A slide is a set of nodes, each a track of keyframes over states (a path and its paint),
+//! drawn in the order of the draw-order events:
+//!
+//! ```text
+//!  node 0: ●──linear──●────────●──step──●        keyframe = (t, state or hidden, ease)
+//!  node 1:      ●──────────linear──────●
+//!  order:  [0]  [0, 1]                            back to front, from each event's t on
+//! ```
 
-use super::ops;
-use serde::Deserialize;
 use std::borrow::Cow;
 
-/// Camera frame: pixel size and visible area in Manim units (section 4.1).
-#[derive(Debug, Clone, Copy, Deserialize)]
+/// Camera frame: pixel size and visible area in scene units (y up).
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Frame {
     pub(crate) pw: f64,
     pub(crate) ph: f64,
@@ -29,7 +36,7 @@ pub(crate) enum Cap {
     Square,
 }
 
-/// Point index range `[start, end)` drawn as one subpath (section 5.2).
+/// Point index range `[start, end)` drawn as one subpath: 4 points per cubic curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Subpath {
     pub(crate) start: usize,
@@ -37,7 +44,15 @@ pub(crate) struct Subpath {
     pub(crate) closed: bool,
 }
 
-/// Flat `[x, y, ...]` points and RGBA rows, as in the file (section 5.1).
+/// Who sees a node: everyone, or only the lecturer (a cue).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Seen {
+    ByAll,
+    ByLecturer,
+}
+
+/// A node's look: flat `[x, y, ...]` cubic control points and flat RGBA rows (several rows
+/// are a gradient along `gradient`).
 #[derive(Debug, Clone)]
 pub(crate) struct PathState {
     pub(crate) points: Vec<f64>,
@@ -50,43 +65,14 @@ pub(crate) struct PathState {
     pub(crate) gradient: Option<[f64; 4]>,
     pub(crate) join: Join,
     pub(crate) cap: Cap,
+    pub(crate) seen: Seen,
 }
 
-/// A bitmap stretched over three corners: upper left, upper right, lower left (section 5.3).
-#[derive(Debug, Clone)]
-pub(crate) struct ImageState {
-    pub(crate) image: usize,
-    pub(crate) corners: [f64; 6],
-    pub(crate) opacity: f64,
-    pub(crate) smooth: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum State {
-    Path(PathState),
-    Image(ImageState),
-}
-
-/// How a node reaches a keyframe from the previous one (section 7).
+/// How a node reaches a keyframe from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Ease {
     Step,
     Linear,
-    Table(usize),
-}
-
-/// Motion replacing the straight blend of a segment (sections 7.3, 7.4).
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Op {
-    Arc {
-        angle: f64,
-        center: Option<[f64; 2]>,
-    },
-    Partial {
-        full: usize,
-        lower: Ease,
-        upper: Ease,
-    },
 }
 
 #[derive(Debug, Clone)]
@@ -95,30 +81,29 @@ pub(crate) struct Keyframe {
     /// Index into the slide's states; `None` hides the node from `t` on.
     pub(crate) state: Option<usize>,
     pub(crate) ease: Ease,
-    pub(crate) op: Option<Op>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Slide {
-    pub(crate) name: String,
     pub(crate) kind: String,
     pub(crate) duration: f64,
-    pub(crate) states: Vec<State>,
+    pub(crate) states: Vec<PathState>,
     /// One keyframe list per node, sorted by time.
     pub(crate) tracks: Vec<Vec<Keyframe>>,
     /// `(t, nodes back to front)`, sorted by time.
     pub(crate) order: Vec<(f64, Vec<usize>)>,
-    pub(crate) eases: Vec<Vec<f64>>,
     pub(crate) frame: Frame,
     /// `("#RRGGBB", opacity)`.
     pub(crate) background: (String, f64),
-    /// `data:image/png;base64,...` URIs.
-    pub(crate) images: Vec<String>,
+    /// Click stops inside the slide, increasing; they split it into parts.
+    pub(crate) stops: Vec<f64>,
+    /// Indices of the parts that repeat until the presenter goes on.
+    pub(crate) loops: Vec<usize>,
 }
 
 impl Slide {
     /// Visible nodes at slide time `t`, back to front, with their states.
-    pub(crate) fn evaluate(&self, t: f64) -> Vec<(usize, Cow<'_, State>)> {
+    pub(crate) fn evaluate(&self, t: f64) -> Vec<(usize, Cow<'_, PathState>)> {
         let Some(event) = last_at_or_before(&self.order, |e| e.0, t) else {
             return vec![];
         };
@@ -130,8 +115,37 @@ impl Slide {
             .collect()
     }
 
-    /// State of one node at `t`, `None` while hidden (section 7.1).
-    fn state_at(&self, node: usize, t: f64) -> Option<Cow<'_, State>> {
+    /// The part playing at `t`: one more than the stops at or before it.
+    ///
+    /// Example: stops `[1, 2]` give part 0 for `t < 1`, part 1 for `1 <= t < 2`.
+    pub(crate) fn part_at(&self, t: f64) -> usize {
+        self.stops.partition_point(|&stop| stop <= t)
+    }
+
+    /// Start and end time of part `part`.
+    pub(crate) fn part_range(&self, part: usize) -> (f64, f64) {
+        let start = if part == 0 { 0.0 } else { self.stops[part - 1] };
+        let end = self.stops.get(part).copied().unwrap_or(self.duration);
+        (start, end)
+    }
+
+    pub(crate) fn part_loops(&self, part: usize) -> bool {
+        self.loops.contains(&part)
+    }
+
+    /// The last part bound (start, stop or 0) before `t`, where going back halts.
+    pub(crate) fn bound_before(&self, t: f64) -> f64 {
+        // Stops increase, so the last one before `t` is the first from the end.
+        self.stops
+            .iter()
+            .copied()
+            .rev()
+            .find(|&stop| stop < t)
+            .unwrap_or(0.0)
+    }
+
+    /// State of one node at `t`, `None` while hidden.
+    fn state_at(&self, node: usize, t: f64) -> Option<Cow<'_, PathState>> {
         let track = self.tracks.get(node)?;
         let i = last_at_or_before(track, |k| k.t, t)?;
         let current = &track[i];
@@ -147,59 +161,8 @@ impl Slide {
             return Some(Cow::Borrowed(start));
         }
 
-        let p = (t - current.t) / (next.t - current.t);
-        Some(Cow::Owned(self.interpolate(start, target, next, p)))
-    }
-
-    fn interpolate(&self, start: &State, target: usize, next: &Keyframe, p: f64) -> State {
-        // Partial: part of a full path, whatever the start state (section 7.4).
-        if let Some(Op::Partial { full, lower, upper }) = next.op {
-            let State::Path(full) = &self.states[full] else {
-                return self.states[full].clone();
-            };
-            let points = ops::partial_points(
-                &full.points,
-                self.ease_value(lower, p),
-                self.ease_value(upper, p),
-            );
-            let subpaths = ops::split_subpaths(&points);
-            return State::Path(PathState {
-                points,
-                subpaths,
-                ..full.clone()
-            });
-        }
-
-        let alpha = self.ease_value(next.ease, p);
-        let end = &self.states[target];
-        let mut state = lerp_state(start, end, alpha);
-
-        // Arc: points move along arcs, colors and widths still blend (section 7.3).
-        if let Some(Op::Arc { angle, center }) = next.op {
-            match (&mut state, start, end) {
-                (State::Path(s), State::Path(a), State::Path(b)) => {
-                    s.points = ops::arc_points(&a.points, &b.points, alpha, angle, center);
-                }
-                (State::Image(s), State::Image(a), State::Image(b)) => {
-                    let q = ops::arc_points(&a.corners, &b.corners, alpha, angle, center);
-                    s.corners.copy_from_slice(&q);
-                }
-                _ => {}
-            }
-        }
-        state
-    }
-
-    /// Easing lookup with linear interpolation between samples (section 7.2).
-    fn ease_value(&self, ease: Ease, p: f64) -> f64 {
-        let Ease::Table(index) = ease else {
-            return p;
-        };
-        let table = &self.eases[index];
-
-        let x = p.clamp(0.0, 1.0) * (table.len() - 1) as f64;
-        let i = (x.floor() as usize).min(table.len() - 2);
-        table[i] + (table[i + 1] - table[i]) * (x - i as f64)
+        let alpha = (t - current.t) / (next.t - current.t);
+        Some(Cow::Owned(lerp_path(start, &self.states[target], alpha)))
     }
 }
 
@@ -216,19 +179,7 @@ fn mix_one(a: f64, b: f64, alpha: f64) -> f64 {
     a + (b - a) * alpha
 }
 
-/// Straight blend; the writer guarantees compatible ends (section 7.1).
-fn lerp_state(start: &State, end: &State, alpha: f64) -> State {
-    match (start, end) {
-        (State::Path(a), State::Path(b)) => State::Path(lerp_path(a, b, alpha)),
-        (State::Image(a), State::Image(b)) => State::Image(ImageState {
-            corners: std::array::from_fn(|i| mix_one(a.corners[i], b.corners[i], alpha)),
-            opacity: mix_one(a.opacity, b.opacity, alpha),
-            ..a.clone()
-        }),
-        _ => start.clone(),
-    }
-}
-
+/// Straight blend of two states the converter found blendable (same shape structure).
 fn lerp_path(a: &PathState, b: &PathState, alpha: f64) -> PathState {
     // A missing background stroke blends as zeros of the other's length.
     let background = match (&a.background, &b.background) {
@@ -260,5 +211,6 @@ fn lerp_path(a: &PathState, b: &PathState, alpha: f64) -> PathState {
         gradient,
         join: a.join,
         cap: a.cap,
+        seen: a.seen,
     }
 }

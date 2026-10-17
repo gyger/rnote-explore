@@ -1,7 +1,6 @@
-//! What to draw for an evaluated state: path commands and resolved paint
-//! (slide-format.md, section 10; reference: Manim's `fixtures._node`).
+//! What to draw for an evaluated state: path commands and resolved paint.
 
-use super::timeline::{Cap, ImageState, Join, PathState, State};
+use super::timeline::{Cap, Join, PathState};
 
 /// Numbers per RGBA row.
 const RGBA_LEN: usize = 4;
@@ -32,61 +31,33 @@ pub(crate) struct DrawSubpath {
     pub(crate) closed: bool,
 }
 
-/// One node to draw, in Manim units (y up).
+/// One node to draw, in scene units (y up): background stroke, then fill (nonzero rule),
+/// then stroke.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum DrawNode {
-    /// Drawn as background stroke, then fill (nonzero rule), then stroke.
-    Path {
-        node: usize,
-        subpaths: Vec<DrawSubpath>,
-        background: Option<Line>,
-        fill: Option<Paint>,
-        stroke: Option<Line>,
-        join: Join,
-        cap: Cap,
-    },
-    Image {
-        node: usize,
-        image: usize,
-        corners: [f64; 6],
-        opacity: f64,
-        smooth: bool,
-    },
+pub(crate) struct DrawPath {
+    pub(crate) subpaths: Vec<DrawSubpath>,
+    pub(crate) background: Option<Line>,
+    pub(crate) fill: Option<Paint>,
+    pub(crate) stroke: Option<Line>,
+    pub(crate) join: Join,
+    pub(crate) cap: Cap,
 }
 
-impl DrawNode {
-    pub(crate) fn new(node: usize, state: &State) -> Self {
-        match state {
-            State::Path(path) => path_node(node, path),
-            State::Image(image) => image_node(node, image),
+impl DrawPath {
+    pub(crate) fn new(s: &PathState) -> Self {
+        let background = s
+            .background
+            .as_deref()
+            .and_then(|rows| line(s.background_width, rows, s.gradient));
+
+        Self {
+            subpaths: subpaths(s),
+            background,
+            fill: paint(&s.fill, s.gradient),
+            stroke: line(s.stroke_width, &s.stroke, s.gradient),
+            join: s.join,
+            cap: s.cap,
         }
-    }
-}
-
-fn path_node(node: usize, s: &PathState) -> DrawNode {
-    let background = s
-        .background
-        .as_deref()
-        .and_then(|rows| line(s.background_width, rows, s.gradient));
-
-    DrawNode::Path {
-        node,
-        subpaths: subpaths(s),
-        background,
-        fill: paint(&s.fill, s.gradient),
-        stroke: line(s.stroke_width, &s.stroke, s.gradient),
-        join: s.join,
-        cap: s.cap,
-    }
-}
-
-fn image_node(node: usize, s: &ImageState) -> DrawNode {
-    DrawNode::Image {
-        node,
-        image: s.image,
-        corners: s.corners,
-        opacity: s.opacity.clamp(0.0, 1.0),
-        smooth: s.smooth,
     }
 }
 

@@ -38,7 +38,11 @@ pub struct VectorImage {
     /// The Manim slide this image shows; `svg_data` is its still frame.
     ///
     /// Optional, so readers without slide support still show the still frame.
-    #[serde(rename = "manim_slide", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "manim_slide",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::manimslide::deserialize_lenient"
+    )]
     pub(crate) manim_slide: Option<SlideSource>,
 }
 
@@ -221,7 +225,7 @@ impl VectorImage {
         let pos = bounds.mins + (bounds.extents() - size) * 0.5;
 
         let mut image = Self::from_svg_str(&still.svg, pos, ImageSizeOption::ImposeSize(size))?;
-        image.manim_slide = Some(source);
+        image.manim_slide = Some(source.into_stored());
         Ok(image)
     }
 
@@ -231,6 +235,10 @@ impl VectorImage {
     pub(crate) fn with_manim_slide(&self, source: SlideSource) -> anyhow::Result<Self> {
         const ASPECT_TOLERANCE: f64 = 1e-9;
 
+        let source = match self.manim_slide.as_ref() {
+            Some(old) => source.placed_like(old),
+            None => source,
+        };
         let mut image = Self::from_manim_slide(source, self.bounds())?;
         let (old, new) = (self.bounds().extents(), image.bounds().extents());
         if (old[0] * new[1] - old[1] * new[0]).abs() <= ASPECT_TOLERANCE * old[0] * new[1] {

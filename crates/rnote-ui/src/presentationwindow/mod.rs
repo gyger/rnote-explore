@@ -9,6 +9,7 @@ use crate::RnCanvas;
 use adw::{prelude::*, subclass::prelude::*};
 use gettextrs::gettext;
 use gtk4::{gdk, glib, glib::clone};
+use rnote_engine::presentation::AudienceColumn;
 use std::cell::Cell;
 
 mod imp {
@@ -25,6 +26,8 @@ mod imp {
         pub(crate) page_locked: Cell<bool>,
         pub(crate) blanked: Cell<bool>,
         pub(crate) frozen: Cell<bool>,
+        /// The audience stays on the first page column; notes sit in the second.
+        pub(crate) first_column: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -119,6 +122,12 @@ impl RnPresentationWindow {
         self.imp().presentationcanvas.set_frozen(frozen);
     }
 
+    /// Hold the audience on the first page column of the lecturer's row.
+    pub(crate) fn set_first_column(&self, first_column: bool) {
+        self.imp().first_column.set(first_column);
+        self.push_state();
+    }
+
     /// Show the audience nothing but the letterbox.
     pub(crate) fn set_blanked(&self, blanked: bool) {
         self.imp().blanked.set(blanked);
@@ -135,6 +144,12 @@ impl RnPresentationWindow {
         let mut engine = canvas.engine_mut();
         let _ = engine.presentation_set_page_locked(imp.page_locked.get());
         let _ = engine.presentation_set_blanked(imp.blanked.get());
+        let column = if imp.first_column.get() {
+            AudienceColumn::First
+        } else {
+            AudienceColumn::Follow
+        };
+        let _ = engine.presentation_set_audience_column(column);
         drop(engine);
 
         self.queue_redraw();

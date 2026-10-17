@@ -1,334 +1,251 @@
-//! Compare the port against fixtures of Manim's reference evaluator
-//! (slide-format.md, section 11).
+//! Tests against ManimGX takes in `tests/data/manimslide/take`, all ManimGX 0.1.1 at
+//! 480x270 and 15 fps (recorded by `exploration/manimgx-slides`):
 //!
-//! `tests/data/manimslide` holds pairs `X.slide.json` + `X.fixture.json.gz`.
-//! Set `RNOTE_MANIM_FIXTURES` to a folder of such pairs to check more slides.
+//! ```text
+//!  spike.take    section "shapes" (Create a square, Transform it into a circle),
+//!                section "text" (Write a text, move and recolor it); 76 frames
+//!  spike@F.png   frame F as ManimGX's own player draws it (Replay.render)
+//!  parts.take    sections "one", "two" (presentation.loop), "three", 1 s each
+//!  single.take   one section: Create a square, 1 s
+//!  cue.take      Create a square (left) and a cue circle (right), 1 s
+//! ```
 
-use super::draw::{DrawNode, DrawSubpath, Line, Paint};
-use super::timeline::{Cap, Join, Slide};
-use serde_json::Value;
-use std::io::Read;
+use super::render::Cues;
+use super::timeline::{Seen, Slide};
+use super::{Position, SlidePlayer, SlideSource, Step};
+use crate::store::StrokeKey;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-/// Tolerances of slide-format.md, section 11.
-const COORD_TOL: f64 = 2e-4;
-const COLOR_TOL: f64 = 1e-3;
-const WIDTH_TOL: f64 = 1e-6;
-
-const FIXTURE_SUFFIX: &str = ".fixture.json.gz";
-const SLIDE_SUFFIX: &str = ".slide.json";
-const FIXTURES_ENV: &str = "RNOTE_MANIM_FIXTURES";
-
-fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/manimslide")
-}
-
-/// Every `(slide file, fixture file)` pair in `dir`.
-fn pairs(dir: &Path) -> Vec<(PathBuf, PathBuf)> {
-    let mut pairs: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .filter_map(|entry| {
-            let fixture = entry.ok()?.path();
-            let name = fixture
-                .file_name()?
-                .to_str()?
-                .strip_suffix(FIXTURE_SUFFIX)?
-                .to_owned();
-            Some((dir.join(name + SLIDE_SUFFIX), fixture))
-        })
-        .collect();
-    pairs.sort();
-    pairs
-}
-
-fn read_fixture(path: &Path) -> Value {
-    let mut text = String::new();
-    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
-        .read_to_string(&mut text)
-        .unwrap();
-    serde_json::from_str(&text).unwrap()
-}
-
-fn numbers(value: &Value) -> Vec<f64> {
-    match value {
-        Value::Array(items) => items.iter().flat_map(numbers).collect(),
-        other => vec![other.as_f64().unwrap()],
-    }
-}
-
-fn assert_close(what: &str, got: &[f64], expected: &[f64], tol: f64) {
-    assert_eq!(got.len(), expected.len(), "{what}: length");
-    for (i, (g, e)) in got.iter().zip(expected).enumerate() {
-        assert!((g - e).abs() <= tol, "{what}[{i}]: got {g}, expected {e}");
-    }
-}
-
-fn check_paint(what: &str, got: Option<&Paint>, expected: &Value) {
-    match (got, expected) {
-        (None, Value::Null) => {}
-        (Some(Paint::Color(c)), e) if e.get("color").is_some() => {
-            assert_close(what, c, &numbers(&e["color"]), COLOR_TOL);
-        }
-        (Some(Paint::Gradient { line, stops }), e) if e.get("gradient").is_some() => {
-            assert_close(what, line, &numbers(&e["gradient"]), COORD_TOL);
-            let stops: Vec<f64> = stops.iter().flatten().copied().collect();
-            assert_close(what, &stops, &numbers(&e["stops"]), COLOR_TOL);
-        }
-        (got, e) => panic!("{what}: got {got:?}, expected {e}"),
-    }
-}
-
-fn check_line(what: &str, got: Option<&Line>, expected: &Value) {
-    match (got, expected) {
-        (None, Value::Null) => {}
-        (Some(line), e) if !e.is_null() => {
-            assert_close(
-                what,
-                &[line.width],
-                &[e["width"].as_f64().unwrap()],
-                WIDTH_TOL,
-            );
-            check_paint(what, Some(&line.paint), &e["paint"]);
-        }
-        (got, e) => panic!("{what}: got {got:?}, expected {e}"),
-    }
-}
-
-fn check_subpaths(what: &str, got: &[DrawSubpath], expected: &Value) {
-    let expected = expected.as_array().unwrap();
-    assert_eq!(got.len(), expected.len(), "{what}: subpath count");
-
-    for (k, (sub, e)) in got.iter().zip(expected).enumerate() {
-        let what = format!("{what} subpath {k}");
-        assert_eq!(sub.closed, e["closed"].as_bool().unwrap(), "{what}: closed");
-        assert_close(&what, &sub.start, &numbers(&e["move"]), COORD_TOL);
-        let cubics: Vec<f64> = sub.cubics.iter().flatten().copied().collect();
-        assert_close(&what, &cubics, &numbers(&e["cubics"]), COORD_TOL);
-    }
-}
-
-fn join_name(join: Join) -> &'static str {
-    match join {
-        Join::Miter => "miter",
-        Join::Round => "round",
-        Join::Bevel => "bevel",
-    }
-}
-
-fn cap_name(cap: Cap) -> &'static str {
-    match cap {
-        Cap::Butt => "butt",
-        Cap::Round => "round",
-        Cap::Square => "square",
-    }
-}
-
-fn check_node(what: &str, got: &DrawNode, e: &Value) {
-    match got {
-        DrawNode::Path {
-            node,
-            subpaths,
-            background,
-            fill,
-            stroke,
-            join,
-            cap,
-        } => {
-            assert_eq!(e["kind"], "path", "{what}");
-            assert_eq!(*node as u64, e["node"].as_u64().unwrap(), "{what}: node");
-            check_subpaths(what, subpaths, &e["subpaths"]);
-            check_line(
-                &format!("{what} background"),
-                background.as_ref(),
-                &e["background"],
-            );
-            check_paint(&format!("{what} fill"), fill.as_ref(), &e["fill"]);
-            check_line(&format!("{what} stroke"), stroke.as_ref(), &e["stroke"]);
-            assert_eq!(join_name(*join), e["join"], "{what}: join");
-            assert_eq!(cap_name(*cap), e["cap"], "{what}: cap");
-        }
-        DrawNode::Image {
-            node,
-            image,
-            corners,
-            opacity,
-            smooth,
-        } => {
-            assert_eq!(e["kind"], "image", "{what}");
-            assert_eq!(*node as u64, e["node"].as_u64().unwrap(), "{what}: node");
-            assert_eq!(*image as u64, e["image"].as_u64().unwrap(), "{what}: image");
-            assert_close(what, corners, &numbers(&e["corners"]), COORD_TOL);
-            assert_close(
-                what,
-                &[*opacity],
-                &[e["opacity"].as_f64().unwrap()],
-                COLOR_TOL,
-            );
-            assert_eq!(*smooth, e["smooth"].as_bool().unwrap(), "{what}: smooth");
-        }
-    }
-}
-
-fn check_pair(slide_path: &Path, fixture_path: &Path) {
-    let slide = Slide::from_json(&std::fs::read_to_string(slide_path).unwrap()).unwrap();
-    let fixture = read_fixture(fixture_path);
-    let name = slide_path.file_name().unwrap().to_string_lossy();
-
-    for frame in fixture["frames"].as_array().unwrap() {
-        let t = frame["t"].as_f64().unwrap();
-        let got: Vec<DrawNode> = slide
-            .evaluate(t)
-            .iter()
-            .map(|(node, state)| DrawNode::new(*node, state))
-            .collect();
-        let expected = frame["nodes"].as_array().unwrap();
-
-        let got_ids: Vec<_> = got
-            .iter()
-            .map(|n| match n {
-                DrawNode::Path { node, .. } | DrawNode::Image { node, .. } => *node as u64,
-            })
-            .collect();
-        let expected_ids: Vec<_> = expected
-            .iter()
-            .map(|e| e["node"].as_u64().unwrap())
-            .collect();
-        assert_eq!(got_ids, expected_ids, "{name} t={t}: nodes in draw order");
-
-        for (node, e) in got.iter().zip(expected) {
-            check_node(&format!("{name} t={t} node {}", e["node"]), node, e);
-        }
-    }
-}
-
-#[test]
-fn matches_reference_fixtures() {
-    let pairs = pairs(&data_dir());
-    assert!(!pairs.is_empty(), "no fixtures found");
-    for (slide, fixture) in pairs {
-        check_pair(&slide, &fixture);
-    }
-}
-
-/// More slides, e.g. a whole deck's fixtures, when the folder is given.
-#[test]
-fn matches_external_fixtures() {
-    let Ok(dir) = std::env::var(FIXTURES_ENV) else {
-        return;
-    };
-    for (slide, fixture) in pairs(Path::new(&dir)) {
-        check_pair(&slide, &fixture);
-    }
-}
-
-#[test]
-fn rejects_unknown_version() {
-    let text = r#"{"version": 2, "z": "", "images": []}"#;
-    assert!(Slide::from_json(text).is_err());
-}
-
-// -- rendering ---------------------------------------------------------------
-//
-// `X@T.png` is slide X at time T, drawn by `exploration/manim-slides/slide_to_png.py`
-// (pycairo, the same drawing rules) at the slide's pixel size.
-
+const TAKE_FPS: f64 = 15.0;
 /// A channel this far off counts the pixel as different (antialiasing differs slightly).
 const PIXEL_TOL: i16 = 24;
-/// Share of pixels allowed to differ: edges of upscaled images are filtered differently.
-const DIFFERING_SHARE: f64 = 0.01;
+/// Share of pixels allowed to differ from ManimGX's picture: a few antialiased edge pixels
+/// (measured: at most 0.01%). Kept small, because thin strokes cover few pixels: the half of a
+/// square missing mid-Create is 0.2% of the picture.
+const DIFFERING_SHARE: f64 = 0.001;
 
-fn render(slide: &Slide, t: f64) -> cairo::ImageSurface {
+fn take_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/manimslide/take")
+}
+
+fn take(name: &str) -> Vec<u8> {
+    std::fs::read(take_dir().join(format!("{name}.take"))).unwrap()
+}
+
+fn slide(name: &str) -> Slide {
+    super::take::slide_from_take(&take(name)).unwrap()
+}
+
+fn render(slide: &Slide, t: f64, cues: Cues) -> cairo::ImageSurface {
     let (w, h) = (slide.frame.pw as i32, slide.frame.ph as i32);
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).unwrap();
-    let images = super::render::SlideImages::decode(slide).unwrap();
 
     let cairo_cx = cairo::Context::new(&surface).unwrap();
     let mut cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
     let target = kurbo::Rect::new(0.0, 0.0, w as f64, h as f64);
-    slide.draw_at(&mut cx, &images, t, target).unwrap();
+    slide.draw_at(&mut cx, t, target, cues).unwrap();
     piet::RenderContext::finish(&mut cx).unwrap();
     drop(cx);
     drop(cairo_cx);
     surface
 }
 
-/// `(slide name, time)` of `X@T.png`.
-fn reference_name(path: &Path) -> Option<(String, f64)> {
+/// The frame of `X@F.png`.
+fn reference_frame(path: &Path) -> Option<f64> {
     let stem = path.file_name()?.to_str()?.strip_suffix(".png")?;
-    let (name, t) = stem.rsplit_once('@')?;
-    Some((name.to_owned(), t.parse().ok()?))
+    stem.rsplit_once('@')?.1.parse().ok()
+}
+
+/// Share of pixels of `slide` at `t` that differ from the reference image at `path`.
+fn differing_share(slide: &Slide, t: f64, path: &Path) -> f64 {
+    let mut surface = render(slide, t, Cues::Shown);
+    let expected = image::open(path).unwrap().into_rgba8();
+    assert_eq!(
+        (surface.width() as u32, surface.height() as u32),
+        expected.dimensions(),
+        "{}: size",
+        path.display()
+    );
+
+    // Cairo stores premultiplied BGRA; the slides have opaque backgrounds.
+    let stride = surface.stride() as usize;
+    let data = surface.data().unwrap();
+    let mut differing = 0;
+    for (x, y, px) in expected.enumerate_pixels() {
+        let i = y as usize * stride + x as usize * 4;
+        let got = [data[i + 2], data[i + 1], data[i], data[i + 3]];
+        if got
+            .iter()
+            .zip(px.0)
+            .any(|(g, e)| (*g as i16 - e as i16).abs() > PIXEL_TOL)
+        {
+            differing += 1;
+        }
+    }
+    differing as f64 / (expected.width() * expected.height()) as f64
+}
+
+// -- reading and drawing -------------------------------------------------------
+
+#[test]
+fn reads_take_timing_and_sections() {
+    let slide = slide("spike");
+    assert_eq!((slide.frame.pw, slide.frame.ph), (480.0, 270.0));
+    assert!((slide.duration - 76.0 / TAKE_FPS).abs() < 1e-9);
+    // Two sections, so one stop where "text" begins.
+    assert_eq!(slide.stops.len(), 1);
+    assert!(slide.stops[0] > 0.0 && slide.stops[0] < slide.duration);
+    assert!(slide.loops.is_empty());
 }
 
 #[test]
-fn renders_like_reference_images() {
+fn reads_looped_sections_as_looped_parts() {
+    let slide = slide("parts");
+    assert_eq!(slide.stops, vec![1.0, 2.0]);
+    assert_eq!(slide.loops, vec![1]);
+}
+
+#[test]
+fn rejects_unknown_take_versions() {
+    // START is the first message: length u32, opcode u8, then the version u32.
+    let mut bytes = take("spike");
+    bytes[5..9].copy_from_slice(&2u32.to_le_bytes());
+    assert!(super::take::slide_from_take(&bytes).is_err());
+}
+
+#[test]
+fn take_renders_like_manimgx() {
+    let slide = slide("spike");
     let mut checked = 0;
-    for entry in std::fs::read_dir(data_dir()).unwrap() {
+    for entry in std::fs::read_dir(take_dir()).unwrap() {
         let path = entry.unwrap().path();
-        let Some((name, t)) = reference_name(&path) else {
+        let Some(frame) = reference_frame(&path) else {
             continue;
         };
-
-        let text = std::fs::read_to_string(data_dir().join(name.clone() + SLIDE_SUFFIX)).unwrap();
-        let slide = Slide::from_json(&text).unwrap();
-        let mut surface = render(&slide, t);
-        let expected = image::open(&path).unwrap().into_rgba8();
-        assert_eq!(
-            (surface.width() as u32, surface.height() as u32),
-            expected.dimensions(),
-            "{name}@{t}: size"
-        );
-
-        // Cairo stores premultiplied BGRA; the slides have opaque backgrounds.
-        let stride = surface.stride() as usize;
-        let data = surface.data().unwrap();
-        let mut differing = 0;
-        for (x, y, px) in expected.enumerate_pixels() {
-            let i = y as usize * stride + x as usize * 4;
-            let got = [data[i + 2], data[i + 1], data[i], data[i + 3]];
-            if got
-                .iter()
-                .zip(px.0)
-                .any(|(g, e)| (*g as i16 - e as i16).abs() > PIXEL_TOL)
-            {
-                differing += 1;
-            }
-        }
-
-        let share = differing as f64 / (expected.width() * expected.height()) as f64;
+        let share = differing_share(&slide, frame / TAKE_FPS, &path);
         assert!(
             share <= DIFFERING_SHARE,
-            "{name}@{t}: {:.2}% of pixels differ",
+            "frame {frame}: {:.2}% of pixels differ",
             share * 100.0
         );
         checked += 1;
     }
-    assert!(checked > 0, "no reference images found");
+    assert_eq!(checked, 4);
 }
 
-// -- storage -----------------------------------------------------------------
+// -- cues ------------------------------------------------------------------------
+
+/// Pixels of `surface` in columns `[from, to)` that differ from its top-left pixel (the
+/// background).
+fn drawn_pixels(surface: &mut cairo::ImageSurface, from: i32, to: i32) -> usize {
+    let (stride, height) = (surface.stride() as usize, surface.height() as usize);
+    let data = surface.data().unwrap();
+    let background = &data[0..4];
+    (0..height)
+        .flat_map(|y| (from as usize..to as usize).map(move |x| y * stride + x * 4))
+        .filter(|&i| data[i..i + 4] != *background)
+        .count()
+}
 
 #[test]
-fn imported_slide_survives_saving() {
-    let text = std::fs::read_to_string(data_dir().join("0001_paint.slide.json")).unwrap();
-    let source = super::SlideSource::from_json(text.clone()).unwrap();
-    let page = p2d::bounding_volume::Aabb::new(
-        p2d::math::Vector2::new(0.0, 0.0),
-        p2d::math::Vector2::new(1600.0, 1000.0),
+fn reads_cue_flags() {
+    let slide = slide("cue");
+    let seen = |s: Seen| slide.states.iter().any(|state| state.seen == s);
+    assert!(seen(Seen::ByAll));
+    assert!(seen(Seen::ByLecturer));
+}
+
+#[test]
+fn hidden_cues_are_not_drawn() {
+    let slide = slide("cue");
+    let mut shown = render(&slide, slide.duration, Cues::Shown);
+    let mut hidden = render(&slide, slide.duration, Cues::Hidden);
+    let (half, width) = (shown.width() / 2, shown.width());
+
+    // The circle (a cue) is on the right, the square on the left.
+    assert!(drawn_pixels(&mut shown, half, width) > 0);
+    assert_eq!(drawn_pixels(&mut hidden, half, width), 0);
+    assert_eq!(
+        drawn_pixels(&mut shown, 0, half),
+        drawn_pixels(&mut hidden, 0, half)
     );
-    let image = crate::strokes::VectorImage::from_manim_slide(source, page).unwrap();
+    assert!(drawn_pixels(&mut hidden, 0, half) > 0);
+}
 
-    // Fitted into the page with the slide's aspect ratio, centered.
-    let bounds = rnote_compose::shapes::Shapeable::bounds(&image);
-    let slide = Slide::from_json(&text).unwrap();
-    let aspect = slide.frame.pw / slide.frame.ph;
-    assert!((bounds.extents()[0] / bounds.extents()[1] - aspect).abs() < 1e-6);
-    assert!((bounds.mins[1] + bounds.maxs[1] - 1000.0).abs() < 1e-6);
-    assert!(image.svg_data.contains("<path"), "still frame has no paths");
+// -- playing in parts ------------------------------------------------------------
+//
+// `parts`: 3 s, stops at 1 and 2 s, part 1 (1-2 s) loops.
 
-    // Saved and loaded again, the slide text is unchanged.
-    let json = serde_json::to_string(&image).unwrap();
-    let loaded: crate::strokes::VectorImage = serde_json::from_str(&json).unwrap();
-    assert_eq!(loaded.manim_slide.unwrap().slide_json(), text);
+fn parts_source() -> SlideSource {
+    SlideSource::from_take(&take("parts"), "Parts".to_owned(), String::new()).unwrap()
+}
+
+fn secs(s: f64) -> Duration {
+    Duration::from_secs_f64(s)
+}
+
+fn assert_time(player: &SlidePlayer, key: StrokeKey, now: Instant, t: f64) {
+    let got = player.time_at(key, now).unwrap();
+    assert!((got - t).abs() < 1e-6, "time {got}, expected {t}");
+}
+
+/// A player that played `parts` from `start` to its first stop.
+fn halted_at_first_stop() -> (SlidePlayer, StrokeKey, Instant) {
+    let (mut player, key, start) = (SlidePlayer::default(), StrokeKey::default(), Instant::now());
+    player.play_at(key, &parts_source(), start).unwrap();
+    let _ = player.frame_at(start + secs(1.5));
+    (player, key, start)
+}
+
+#[test]
+fn playing_halts_at_the_next_stop() {
+    let (player, key, start) = halted_at_first_stop();
+    assert_eq!(player.position(key), Position::Middle);
+    assert_time(&player, key, start + secs(1.5), 1.0);
+}
+
+#[test]
+fn forward_while_playing_a_part_jumps_to_its_end() {
+    let (mut player, key, start) = (SlidePlayer::default(), StrokeKey::default(), Instant::now());
+    player.play_at(key, &parts_source(), start).unwrap();
+
+    assert_eq!(player.forward_at(key, start + secs(0.5)), Step::Stay);
+    assert_eq!(player.position(key), Position::Middle);
+    assert_time(&player, key, start + secs(9.0), 1.0);
+}
+
+#[test]
+fn looped_part_repeats_until_forward() {
+    let (mut player, key, start) = halted_at_first_stop();
+    let looping = start + secs(2.0);
+    assert_eq!(player.forward_at(key, looping), Step::Stay);
+
+    // 2.5 s later it is half way through its third round.
+    let later = looping + secs(2.5);
+    assert!(player.frame_at(later).playing);
+    assert_time(&player, key, later, 1.5);
+
+    // Forward ends the loop and plays on from its end.
+    assert_eq!(player.forward_at(key, later), Step::Stay);
+    assert_eq!(player.position(key), Position::Playing);
+    assert_time(&player, key, later, 2.0);
+}
+
+#[test]
+fn back_halts_at_the_previous_stop_then_leaves() {
+    let (mut player, key, start) = halted_at_first_stop();
+    let _ = player.forward_at(key, start + secs(2.0)); // the loop
+    let _ = player.forward_at(key, start + secs(2.0)); // on from 2 s
+
+    let now = start + secs(2.5); // 2.5 s into the slide
+    assert_eq!(player.back_at(key, now), Step::Stay);
+    assert_time(&player, key, now, 2.0);
+    assert_eq!(player.back_at(key, now), Step::Stay);
+    assert_time(&player, key, now, 1.0);
+    assert_eq!(player.back_at(key, now), Step::Stay);
+    assert_time(&player, key, now, 0.0);
+    assert_eq!(player.back_at(key, now), Step::Leave);
 }
 
 #[test]

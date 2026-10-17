@@ -1,8 +1,8 @@
 //! Manim slide control: one slide per page, stepped like a deck.
 //!
 //! ```text
-//!  forward:  unplayed/start ─► play ─► (playing) finish ─► (end) next page, play its slide
-//!  back:     playing/middle/end ─► rewind ─► (start) previous page, its slide at the end
+//!  forward:  unplayed ─► play ─► to the next stop ─► … ─► (end) next page, play its slide
+//!  back:     to the previous stop ─► … ─► (start) previous page, its slide at the end
 //! ```
 //!
 //! A slide reached by scrolling waits at its start for the first forward;
@@ -12,7 +12,7 @@
 // Imports
 use crate::WidgetFlags;
 use crate::engine::Engine;
-use crate::manimslide::{Position, SlideView};
+use crate::manimslide::{Position, Step};
 use crate::pens::PenStyle;
 use crate::store::StrokeKey;
 use crate::strokes::Stroke;
@@ -54,17 +54,12 @@ impl Engine {
             return self.slide_page_step(PageStep::Next);
         };
 
-        match self.slides.position(key) {
-            Position::Unplayed => self.slide_play(key),
-            Position::Start | Position::Middle => {
-                self.slides.resume(key);
-                self.slide_frames()
-            }
-            Position::Playing if !self.slides.looping(key) => {
-                self.slides.finish(key);
-                redraw()
-            }
-            Position::Playing | Position::End => self.slide_page_step(PageStep::Next),
+        if self.slides.position(key) == Position::Unplayed {
+            return self.slide_play(key);
+        }
+        match self.slides.forward(key) {
+            Step::Stay => self.slide_frames(),
+            Step::Leave => self.slide_page_step(PageStep::Next),
         }
     }
 
@@ -74,13 +69,42 @@ impl Engine {
             return self.slide_page_step(PageStep::Previous);
         };
 
+        if self.slides.position(key) == Position::Unplayed {
+            return self.slide_page_step(PageStep::Previous);
+        }
+        match self.slides.back(key) {
+            Step::Stay => redraw(),
+            Step::Leave => self.slide_page_step(PageStep::Previous),
+        }
+    }
+
+    /// Hold the slide in view at its current frame, or let a held one play on.
+    pub fn slide_pause(&mut self) -> WidgetFlags {
+        let Some(key) = self.slide_in_view() else {
+            return WidgetFlags::default();
+        };
+
         match self.slides.position(key) {
-            Position::Playing | Position::Middle | Position::End => {
-                self.slides.rewind(key);
+            Position::Playing => {
+                self.slides.pause(key);
                 redraw()
             }
-            Position::Unplayed | Position::Start => self.slide_page_step(PageStep::Previous),
+            Position::Start | Position::Middle => {
+                self.slides.resume(key);
+                self.slide_frames()
+            }
+            Position::Unplayed | Position::End => WidgetFlags::default(),
         }
+    }
+
+    /// Whether the slide in view is held, so pausing would let it play on.
+    pub fn slide_held(&self) -> bool {
+        self.slide_in_view().is_some_and(|key| {
+            matches!(
+                self.slides.position(key),
+                Position::Start | Position::Middle
+            )
+        })
     }
 
     /// Step with the Space key: forward, with Shift back. `None` when the key is not for slides.
@@ -123,26 +147,48 @@ impl Engine {
 
     /// How the main canvas and the zoom window show slides.
     #[cfg(feature = "ui")]
-    pub(crate) fn lecturer_slide_view(&self) -> SlideView {
-        SlideView::Lecturer(self.config.read().lecturer_slides)
+    pub(crate) fn lecturer_slide_view(&self) -> crate::manimslide::SlideView {
+        crate::manimslide::SlideView::Lecturer(self.config.read().lecturer_slides)
     }
 
-    /// The topmost slide under the center of the view.
+    /// The live slide of the page row in view: the one under the center, else the
+    /// leftmost, e.g. while the lecturer looks at the notes column.
     fn slide_in_view(&self) -> Option<StrokeKey> {
         let center = self.camera.viewport_center();
-        let point = Aabb::new(center, center);
+        let page_height = self.document.config.format.height();
+        let top = (center[1] / page_height).floor() * page_height;
+        let row = Aabb::new(
+            Vector2::new(self.document.x, top),
+            Vector2::new(self.document.x + self.document.width, top + page_height),
+        );
 
-        self.store
-            .stroke_keys_as_rendered_intersecting_bounds(point)
+        let live: Vec<(StrokeKey, Aabb)> = self
+            .store
+            .stroke_keys_as_rendered_intersecting_bounds(row)
             .into_iter()
-            .rev()
-            .find(|&key| {
-                matches!(
-                    self.store.get_stroke_ref(key),
-                    Some(Stroke::VectorImage(image)) if image.manim_slide.is_some()
-                        && image.bounds().contains_local_point(center)
-                )
+            .filter_map(|key| match self.store.get_stroke_ref(key) {
+                Some(Stroke::VectorImage(image))
+                    if image
+                        .manim_slide
+                        .as_ref()
+                        .is_some_and(|source| !source.is_notes_copy()) =>
+                {
+                    let bounds = image.bounds();
+                    let middle = (bounds.mins[1] + bounds.maxs[1]) * 0.5;
+                    (middle >= row.mins[1] && middle < row.maxs[1]).then_some((key, bounds))
+                }
+                _ => None,
             })
+            .collect();
+
+        live.iter()
+            .rev()
+            .find(|(_, bounds)| bounds.contains_local_point(center))
+            .or_else(|| {
+                live.iter()
+                    .min_by(|(_, a), (_, b)| a.mins[0].total_cmp(&b.mins[0]))
+            })
+            .map(|(key, _)| *key)
     }
 
     fn slide_play(&mut self, key: StrokeKey) -> WidgetFlags {
@@ -223,6 +269,16 @@ mod tests {
     use crate::store::chrono_comp::StrokeLayer;
     use crate::strokes::VectorImage;
 
+    /// A slide without stops: ManimGX creating a square, 1 s.
+    fn single_slide() -> SlideSource {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/data/manimslide/take/single.take"
+        );
+        let take = std::fs::read(path).unwrap();
+        SlideSource::from_take(&take, "Single".to_owned(), String::new()).unwrap()
+    }
+
     /// An engine with two pages, slides on both, viewing the first.
     fn engine_with_slides() -> (Engine, [StrokeKey; 2]) {
         let mut engine = Engine::default();
@@ -230,12 +286,8 @@ mod tests {
         let page = engine.document.config.format.size();
         engine.document.height = page[1] * 2.0;
 
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/data/manimslide/0000_arcs.slide.json"
-        );
         let keys = [0.0, 1.0].map(|index| {
-            let source = SlideSource::from_json(std::fs::read_to_string(path).unwrap()).unwrap();
+            let source = single_slide();
             let top = Vector2::new(0.0, page[1] * index);
             let image = VectorImage::from_manim_slide(source, Aabb::new(top, top + page)).unwrap();
             engine
@@ -296,6 +348,54 @@ mod tests {
         let _ = engine.slide_page_step(PageStep::Previous);
         assert_eq!(engine.slide_in_view(), Some(first));
         assert!((engine.camera.viewport_center()[1] - page[1] * 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pause_holds_the_slide_until_resumed() {
+        let (mut engine, [first, _]) = engine_with_slides();
+        let _ = engine.slide_forward();
+        assert_eq!(engine.slides.position(first), Position::Playing);
+
+        assert!(!engine.slide_held());
+        let _ = engine.slide_pause();
+        assert!(engine.slide_held());
+        assert!(matches!(
+            engine.slides.position(first),
+            Position::Start | Position::Middle
+        ));
+
+        let _ = engine.slide_pause();
+        assert_eq!(engine.slides.position(first), Position::Playing);
+        assert!(!engine.slide_held());
+    }
+
+    #[test]
+    fn notes_copies_stay_still_and_steps_go_by_row() {
+        let (mut engine, [first, second]) = engine_with_slides();
+        let page = engine.document.config.format.size();
+        engine.document.width = page[0] * 2.0;
+
+        let source = single_slide().into_notes_copy();
+        let left = Vector2::new(page[0], 0.0);
+        let image = VectorImage::from_manim_slide(source, Aabb::new(left, left + page)).unwrap();
+        let copy = engine
+            .store
+            .insert_stroke(Stroke::VectorImage(image), Some(StrokeLayer::Document));
+
+        // Looking at the copy in column 2 steps the live slide of the row.
+        let _ = engine
+            .camera
+            .set_viewport_center(Vector2::new(page[0] * 1.5, page[1] * 0.5));
+        assert_eq!(engine.slide_in_view(), Some(first));
+        let _ = engine.slide_forward();
+        assert_eq!(engine.slides.position(first), Position::Playing);
+        assert_eq!(engine.slides.position(copy), Position::Unplayed);
+
+        // Stepping keeps the column: the next row's live slide plays.
+        let _ = engine.slide_forward();
+        let _ = engine.slide_forward();
+        assert_eq!(engine.slides.position(second), Position::Playing);
+        assert!(engine.camera.viewport_center()[0] > page[0]);
     }
 
     #[test]

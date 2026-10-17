@@ -148,6 +148,16 @@
                   </object>
                 </child>
                 <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon_name">presentation-first-column-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Lock to First Column: the audience sees the first column of your row, keep notes in the second</property>
+                    <property name="action-name">win.presentation-first-column</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+                <child>
                   <object class="GtkSeparator" />
                 </child>
                 <child>
@@ -155,6 +165,16 @@
                     <property name="icon_name">slide-back-symbolic</property>
                     <property name="tooltip_text" translatable="yes">Slide Back: rewind the slide, at its start go back a page (Shift+Space, Page Up)</property>
                     <property name="action-name">win.slide-back</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="slide_pause_button">
+                    <property name="icon_name">slide-pause-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Pause Slide: hold the animation at the current frame, press again to resume</property>
+                    <property name="action-name">win.slide-pause</property>
                     <style>
                       <class name="flat" />
                     </style>

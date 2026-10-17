@@ -1,70 +1,37 @@
-//! Drawing an evaluated slide with piet (slide-format.md, section 10).
+//! Drawing an evaluated slide with piet.
 //!
 //! ```text
 //!  target rect (document)  ◄── scale + center ──  pixel frame (pw × ph)  ◄── frame matrix ──  Manim units (y up)
 //! ```
 
-use super::draw::{DrawNode, DrawSubpath, Line, Paint};
-use super::timeline::{Cap, Frame, Join, Slide};
-use anyhow::{Context, anyhow};
-use base64::Engine as _;
+use super::draw::{DrawPath, DrawSubpath, Paint};
+use super::timeline::{Cap, Frame, Join, Seen, Slide};
+use anyhow::anyhow;
 use kurbo::{Affine, BezPath, Rect};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use piet::{RenderContext, StrokeStyle};
 
-const DATA_URI_PREFIX: &str = "data:image/png;base64,";
-/// Cairo's default, which Manim draws with (section 10.1).
+/// Cairo's default miter limit, which Manim draws with.
 const MITER_LIMIT: f64 = 10.0;
-/// Bytes per RGBA pixel.
-const RGBA_BYTES: usize = 4;
 
-/// A slide's images, decoded once to straight-alpha RGBA.
-#[derive(Debug, Clone)]
-pub(crate) struct SlideImages(Vec<Bitmap>);
-
-#[derive(Debug, Clone)]
-struct Bitmap {
-    width: usize,
-    height: usize,
-    rgba: Vec<u8>,
-}
-
-impl SlideImages {
-    pub(crate) fn decode(slide: &Slide) -> anyhow::Result<Self> {
-        slide
-            .images
-            .iter()
-            .enumerate()
-            .map(|(i, uri)| decode_png_uri(uri).with_context(|| format!("image {i}")))
-            .collect::<anyhow::Result<_>>()
-            .map(Self)
-    }
-}
-
-fn decode_png_uri(uri: &str) -> anyhow::Result<Bitmap> {
-    let data = uri
-        .strip_prefix(DATA_URI_PREFIX)
-        .ok_or_else(|| anyhow!("not a PNG data URI"))?;
-    let png = base64::engine::general_purpose::STANDARD.decode(data)?;
-    let image = image::load_from_memory_with_format(&png, image::ImageFormat::Png)?.into_rgba8();
-
-    Ok(Bitmap {
-        width: image.width() as usize,
-        height: image.height() as usize,
-        rgba: image.into_raw(),
-    })
+/// Whether a drawing shows the cues: the lecturer's views do, the presentation window not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Cues {
+    Shown,
+    Hidden,
 }
 
 impl Slide {
-    /// The slide at `t` as a standalone SVG document of its pixel size.
-    pub(crate) fn still_svg(&self, images: &SlideImages, t: f64) -> anyhow::Result<String> {
+    /// The slide at `t` as a standalone SVG document of its pixel size (the lecturer's still
+    /// frame).
+    pub(crate) fn still_svg(&self, t: f64, cues: Cues) -> anyhow::Result<String> {
         let size = Vector2::new(self.frame.pw, self.frame.ph);
         let bounds = Aabb::new(Vector2::ZERO, size);
         let target = Rect::new(0.0, 0.0, size[0], size[1]);
 
         let svg = crate::Svg::gen_with_piet_cairo_backend(
-            |cx| self.draw_at(cx, images, t, target),
+            |cx| self.draw_at(cx, t, target, cues),
             bounds,
         )?;
         Ok(rnote_compose::utils::wrap_svg_root(
@@ -79,9 +46,9 @@ impl Slide {
     pub(crate) fn draw_at(
         &self,
         cx: &mut impl RenderContext,
-        images: &SlideImages,
         t: f64,
         target: Rect,
+        cues: Cues,
     ) -> anyhow::Result<()> {
         let to_target = fit(&self.frame, target);
         let to_pixels = frame_matrix(&self.frame);
@@ -93,25 +60,11 @@ impl Slide {
             cx.fill(pixels, &background_color(&self.background));
 
             cx.transform(to_pixels);
-            for (node, state) in self.evaluate(t) {
-                match DrawNode::new(node, &state) {
-                    DrawNode::Path {
-                        subpaths,
-                        background,
-                        fill,
-                        stroke,
-                        join,
-                        cap,
-                        ..
-                    } => draw_path(cx, &subpaths, background, fill, stroke, join, cap)?,
-                    DrawNode::Image {
-                        image,
-                        corners,
-                        opacity,
-                        smooth,
-                        ..
-                    } => draw_image(cx, &images.0[image], corners, opacity, smooth)?,
+            for (_, state) in self.evaluate(t) {
+                if cues == Cues::Hidden && state.seen == Seen::ByLecturer {
+                    continue;
                 }
+                draw_path(cx, DrawPath::new(&state))?;
             }
             Ok(())
         })
@@ -203,75 +156,24 @@ fn stroke_style(join: Join, cap: Cap) -> StrokeStyle {
     StrokeStyle::new().line_join(join).line_cap(cap)
 }
 
-/// Background stroke, then fill (nonzero), then stroke (section 10.1).
-fn draw_path(
-    cx: &mut impl RenderContext,
-    subpaths: &[DrawSubpath],
-    background: Option<Line>,
-    fill: Option<Paint>,
-    stroke: Option<Line>,
-    join: Join,
-    cap: Cap,
-) -> Result<(), piet::Error> {
-    let path = bez_path(subpaths);
-    let style = stroke_style(join, cap);
+/// Background stroke, then fill (nonzero), then stroke.
+fn draw_path(cx: &mut impl RenderContext, node: DrawPath) -> Result<(), piet::Error> {
+    let path = bez_path(&node.subpaths);
+    let style = stroke_style(node.join, node.cap);
 
-    if let Some(line) = background {
+    if let Some(line) = node.background {
         let brush = brush(cx, &line.paint)?;
         cx.stroke_styled(&path, &brush, line.width, &style);
     }
 
-    if let Some(paint) = fill {
+    if let Some(paint) = node.fill {
         let brush = brush(cx, &paint)?;
         cx.fill(&path, &brush);
     }
 
-    if let Some(line) = stroke {
+    if let Some(line) = node.stroke {
         let brush = brush(cx, &line.paint)?;
         cx.stroke_styled(&path, &brush, line.width, &style);
     }
     Ok(())
-}
-
-/// The bitmap over the parallelogram of its corners (section 5.3).
-///
-/// piet has no image opacity, so a fading image gets its alpha scaled here.
-fn draw_image(
-    cx: &mut impl RenderContext,
-    bitmap: &Bitmap,
-    corners: [f64; 6],
-    opacity: f64,
-    smooth: bool,
-) -> Result<(), piet::Error> {
-    let rgba: Vec<u8> = if opacity >= 1.0 {
-        bitmap.rgba.clone()
-    } else {
-        bitmap
-            .rgba
-            .as_chunks::<RGBA_BYTES>()
-            .0
-            .iter()
-            .flat_map(|&[r, g, b, a]| [r, g, b, (a as f64 * opacity).round() as u8])
-            .collect()
-    };
-    let image = cx.make_image(
-        bitmap.width,
-        bitmap.height,
-        &rgba,
-        piet::ImageFormat::RgbaSeparate,
-    )?;
-
-    let [x0, y0, x1, y1, x2, y2] = corners;
-    let unit_square = Affine::new([x1 - x0, y1 - y0, x2 - x0, y2 - y0, x0, y0]);
-    let interpolation = if smooth {
-        piet::InterpolationMode::Bilinear
-    } else {
-        piet::InterpolationMode::NearestNeighbor
-    };
-
-    cx.with_save(|cx| {
-        cx.transform(unit_square);
-        cx.draw_image(&image, Rect::new(0.0, 0.0, 1.0, 1.0), interpolation);
-        Ok(())
-    })
 }
