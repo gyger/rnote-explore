@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "a4bbb31b9bc32d34e7da2e7dbc81f40dc59b829b",
-  "head": "2a0f1ebed9f12bb61d6a886a5fd65b3c14289540",
+  "prev": "2c1d1973473eddd06c9edfdaf1e501fa1f1a017d",
+  "head": "34ce514c5e79bbe24f3aa48d0536488259143969",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -20,7 +20,7 @@
       "oid": "e8f91d56f885374cf639d6807b87f546626e2d8e"
     },
     "manim-slides": {
-      "oid": "2a0f1ebed9f12bb61d6a886a5fd65b3c14289540"
+      "oid": "34ce514c5e79bbe24f3aa48d0536488259143969"
     },
     "overlay-workflow": {
       "oid": "d13aaeb1d8ca97dbb9d707b7581381ee8af22f90"

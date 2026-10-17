@@ -6,42 +6,62 @@ Date:   2026-10-17 22:01:19 +0200
 Present Manim slides natively
 
 Purpose: lecture with Manim slides inside Rnote: import the slides of a
-deck, write on them, and step through their animations on the
-projector. Slides come from a Manim fork whose vector backend writes
-each slide as a .slide.json timeline (spec: slide-format.md in that
-fork, reference evaluator SlideTimeline.evaluate). No browser engine:
-the timeline is a pure function of time t.
+ManimGX scene file, write on them, and step through their animations on
+the projector. Unmodified ManimGX (PyPI manimgx 0.1.1) records each
+slide as a "take"; Rnote stores the take and plays it as vectors. No
+browser engine, no Manim fork, no video.
 
 Behaviour:
-- Main menu "Import Manim Slides": multi-select .slide.json files, one
-  slide per page from the page in view, on the document layer, so ink
-  goes on top.
-- Space/PageDown forward, Shift+Space/PageUp back, also from the
-  presentation window; buttons in the presentation controls. Forward
-  plays, finishes while playing, and at the end centers the next page
-  and plays its slide. A slide reached by scrolling waits at its start.
-  Back rewinds, then shows the previous page at its end. The typewriter
-  keeps Space for typing.
-- The audience always sees slides animate, unplayed ones at their
-  start. The lecturer's screen shows the end state, like presenter
-  notes, unless Settings > General "Animate Slides on This Screen".
-- "Update Manim Slides": re-rendered files replace slides of the same
-  section name in place, ink kept, one undo step.
+- Main menu Manim Slides: "Import Scene…", "Import Scene with Notes
+  Column…", "Update", "Re-render All". Import runs the scene file
+  through `uv run --with manimgx==0.1.1 python` (bundled driver
+  record_takes.py) and places one slide per page from the page in view,
+  on the document layer, so ink goes on top. The slides are the file's
+  SLIDES list, else its scene classes. A toast shows the run's progress
+  and stays until the slides are placed; without uv it says where to
+  get it.
+- Notes column: a still copy of each slide's end state on the page to
+  its right, for the lecturer's notes; it stores only the still frame.
+  "Lock to First Column" keeps the audience on column 1.
+- Stops and loops: ManimGX sections are click stops;
+  presentation.loop repeats a part, presentation.skip goes on by
+  itself. Space/PageDown forward, Shift+Space/PageUp back, also from
+  the presentation window; buttons and a pause button in the
+  presentation controls. Stepping centers whole pages.
+- Cues: objects with `rnote_cue` set are for the lecturer only (what to
+  write by hand, hints). Never in the presentation window; with a notes
+  column only on the copy, otherwise on the slide.
+- The audience always sees slides animate. The lecturer's screen shows
+  the end state unless Settings > General "Animate Slides on This
+  Screen".
+- Update re-runs the stored scene files and replaces slides by scene
+  name in place, ink kept, one undo step. Only slides whose hash
+  changed run again (class, the module-level definitions it uses,
+  module settings, SLIDES, local imports, ManimGX and driver version);
+  Re-render All ignores the hashes.
 
 Approach:
-- crates/rnote-engine/src/manimslide/: format (unpack), timeline
-  (evaluate), ops (arc, partial), draw (paint), render (piet). Tests
-  compare against fixtures and PNGs of the Python reference
-  (tests/data/manimslide; RNOTE_MANIM_FIXTURES checks whole decks).
-- Storage: VectorImage.manim_slide (optional) holds the slide file
-  verbatim (Arc<str>), its time and source file; svg_data is the end
-  frame, so readers without slide support still show it.
+- crates/rnote-engine/src/manimslide/take/: reader for ManimGX's take
+  format v1 and converter to keyframed paths (LINEAR when blendable,
+  STEP otherwise; paint mixed in OKLab as ManimGX does). Tests compare
+  renders against ManimGX's own player (tests/data/manimslide/take).
+- Cue flag: the driver patches ManimGX's Feeder.record (pinned version)
+  to set flag bit 1<<32 on cue records; the take format is unchanged.
+- Storage: VectorImage.manim_slide (optional) holds the take (base64),
+  scene name, a copy of the scene code, file, time, role (live, live
+  beside notes, notes copy) and hash. svg_data is the end frame, so
+  readers without slide support still show it. Old slide-JSON
+  documents open as still frames.
 - Playback state lives in SlidePlayer beside the store, not in the
   strokes. The store draw loops of all views ask it through the
   LiveStrokes trait and draw live slides at their stacking place.
+- Import converts each take once, on all cores; still frames are drawn
+  sequentially (parallel cairo drawing measured many times slower).
+  Update prepares replacements off the main thread.
 
 Constraints: builds on dual-screen and projector-tablet (presentation
 window, raster cache). Developed further on branch exp-manim-slides.
-File format: additive optional field only.
+File format: additive optional field only. Needs uv only to import or
+update, not to open or present.
 
 Assisted by: Claude Code / Opus 5.5
