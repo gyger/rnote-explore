@@ -1,13 +1,14 @@
 {
   "version": 5,
-  "prev": "68561aaad68eaef607f0702abce10666731b9fd5",
-  "head": "802aeba781307f3e833a5bb903f1406e335170ca",
+  "prev": "ccfec08ee2c2975a2e3abe7b9736be8b2000ee2c",
+  "head": "8bd3fbfa9cb6be5bc21b149fce2bfadb7a235126",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "windows-shortcut-home",
-    "zoom-window"
+    "zoom-window",
+    "refresh-temp"
   ],
   "unapplied": [
     "screen-ratio-formats",
@@ -28,6 +29,9 @@
     },
     "projector-tablet": {
       "oid": "b29a4e11e4d53d897ace3970e73302d5de5eb1ff"
+    },
+    "refresh-temp": {
+      "oid": "8bd3fbfa9cb6be5bc21b149fce2bfadb7a235126"
     },
     "screen-ratio-formats": {
       "oid": "a57f21801fa1eb1ca7d831bfbd9a7a5376457d2f"
