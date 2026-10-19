@@ -1,7 +1,7 @@
 Bottom: 3a7ceae9c061c74ea571210377fe244eefc93e79
 Top:    df4eb4abec7b6a55c4580ee769f7b249de0ba186
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-19 14:37:49 +0200
+Date:   2026-10-19 14:38:00 +0200
 
 Present Manim slides natively
 
@@ -31,6 +31,9 @@ Behaviour:
 - Cues: objects with `rnote_cue` set are for the lecturer only (what to
   write by hand, hints). Never in the presentation window; with a notes
   column only on the copy, otherwise on the slide.
+- Pictures (ManimGX's ImageMobject) show and animate like shapes; they
+  are stored as ManimGX records them (raw RGBA in the take) plus a PNG
+  per still frame, so scene files should downscale photos.
 - The audience always sees slides animate. The lecturer's screen shows
   the end state unless Settings > General "Animate Slides on This
   Screen".
@@ -52,6 +55,10 @@ Approach:
   beside notes, notes copy) and hash. svg_data is the end frame, so
   readers without slide support still show it. Old slide-JSON
   documents open as still frames.
+- A picture is a textured quad: its first triangle and texture
+  coordinates give the affine map from pixels to the scene. Edge pixels
+  are extended and the quad clipped, as ManimGX's GPU samples them.
+  Converted pictures are cached per thread for playback.
 - Playback state lives in SlidePlayer beside the store, not in the
   strokes. The store draw loops of all views ask it through the
   LiveStrokes trait and draw live slides at their stacking place.
