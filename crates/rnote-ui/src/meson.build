@@ -66,6 +66,8 @@ rnote_ui_sources = files(
     'iconpicker.rs',
     'main.rs',
     'mainheader.rs',
+    'manimgx/mod.rs',
+    'manimgx/record_takes.py',
     'overlays.rs',
     'penpicker.rs',
     'penssidebar/brushpage.rs',
