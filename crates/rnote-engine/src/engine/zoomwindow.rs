@@ -128,25 +128,28 @@ impl Engine {
 
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(surface_bounds));
 
-        snapshot.save();
-        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-        self.zoom_window.draw_paper_to_gtk_snapshot(
-            snapshot,
-            doc_bounds,
-            &self.document.config.background,
-        );
-        self.zoom_window.draw_zone_to_gtk_snapshot(snapshot);
-        snapshot.restore();
-
-        self.store
-            .draw_strokes_cached(
+        // Paper is drawn with the strokes: markers multiply with it.
+        let paper = |snapshot: &gtk4::Snapshot| {
+            snapshot.save();
+            snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+            self.zoom_window.draw_paper_to_gtk_snapshot(
                 snapshot,
-                camera,
-                viewport,
                 doc_bounds,
-                &self.zoom_rasters,
-                &self.slides.view(self.lecturer_slide_view()),
-            )?;
+                &self.document.config.background,
+            );
+            self.zoom_window.draw_zone_to_gtk_snapshot(snapshot);
+            snapshot.restore();
+        };
+
+        self.store.draw_strokes_cached(
+            snapshot,
+            camera,
+            viewport,
+            doc_bounds,
+            &self.zoom_rasters,
+            &self.slides.view(self.lecturer_slide_view()),
+            paper,
+        )?;
 
         let engine_view = EngineView {
             tasks_tx: self.tasks_tx.clone(),
