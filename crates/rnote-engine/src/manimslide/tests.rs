@@ -8,6 +8,8 @@
 //!  parts.take    sections "one", "two" (presentation.loop), "three", 1 s each
 //!  single.take   one section: Create a square, 1 s
 //!  cue.take      Create a square (left) and a cue circle (right), 1 s
+//!  image.take    a gradient picture fades in (1 s), then moves and shrinks (1 s)
+//!  image@F.png   frame F as ManimGX's own player draws it
 //! ```
 
 use super::render::Cues;
@@ -51,10 +53,32 @@ fn render(slide: &Slide, t: f64, cues: Cues) -> cairo::ImageSurface {
     surface
 }
 
-/// The frame of `X@F.png`.
-fn reference_frame(path: &Path) -> Option<f64> {
+/// The frame of `<take>@F.png`, for references of take `take`.
+fn reference_frame(path: &Path, take: &str) -> Option<f64> {
     let stem = path.file_name()?.to_str()?.strip_suffix(".png")?;
-    stem.rsplit_once('@')?.1.parse().ok()
+    let (name, frame) = stem.rsplit_once('@')?;
+    (name == take).then_some(())?;
+    frame.parse().ok()
+}
+
+/// Compare take `name` with each of its reference pictures; the number compared.
+fn compare_references(name: &str) -> usize {
+    let slide = slide(name);
+    let mut checked = 0;
+    for entry in std::fs::read_dir(take_dir()).unwrap() {
+        let path = entry.unwrap().path();
+        let Some(frame) = reference_frame(&path, name) else {
+            continue;
+        };
+        let share = differing_share(&slide, frame / TAKE_FPS, &path);
+        assert!(
+            share <= DIFFERING_SHARE,
+            "{name} frame {frame}: {:.2}% of pixels differ",
+            share * 100.0
+        );
+        checked += 1;
+    }
+    checked
 }
 
 /// Share of pixels of `slide` at `t` that differ from the reference image at `path`.
@@ -116,22 +140,12 @@ fn rejects_unknown_take_versions() {
 
 #[test]
 fn take_renders_like_manimgx() {
-    let slide = slide("spike");
-    let mut checked = 0;
-    for entry in std::fs::read_dir(take_dir()).unwrap() {
-        let path = entry.unwrap().path();
-        let Some(frame) = reference_frame(&path) else {
-            continue;
-        };
-        let share = differing_share(&slide, frame / TAKE_FPS, &path);
-        assert!(
-            share <= DIFFERING_SHARE,
-            "frame {frame}: {:.2}% of pixels differ",
-            share * 100.0
-        );
-        checked += 1;
-    }
-    assert_eq!(checked, 4);
+    assert_eq!(compare_references("spike"), 4);
+}
+
+#[test]
+fn images_render_like_manimgx() {
+    assert_eq!(compare_references("image"), 3);
 }
 
 // -- cues ------------------------------------------------------------------------
@@ -151,7 +165,7 @@ fn drawn_pixels(surface: &mut cairo::ImageSurface, from: i32, to: i32) -> usize 
 #[test]
 fn reads_cue_flags() {
     let slide = slide("cue");
-    let seen = |s: Seen| slide.states.iter().any(|state| state.seen == s);
+    let seen = |s: Seen| slide.states.iter().any(|state| state.seen() == s);
     assert!(seen(Seen::ByAll));
     assert!(seen(Seen::ByLecturer));
 }

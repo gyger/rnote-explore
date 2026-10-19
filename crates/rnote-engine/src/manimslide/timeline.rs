@@ -1,7 +1,7 @@
 //! The slide model and its evaluation at a time.
 //!
-//! A slide is a set of nodes, each a track of keyframes over states (a path and its paint),
-//! drawn in the order of the draw-order events:
+//! A slide is a set of nodes, each a track of keyframes over states (a path and its paint, or
+//! a placed picture), drawn in the order of the draw-order events:
 //!
 //! ```text
 //!  node 0: ●──linear──●────────●──step──●        keyframe = (t, state or hidden, ease)
@@ -10,6 +10,7 @@
 //! ```
 
 use std::borrow::Cow;
+use std::sync::{Arc, OnceLock};
 
 /// Camera frame: pixel size and visible area in scene units (y up).
 #[derive(Debug, Clone, Copy)]
@@ -68,6 +69,45 @@ pub(crate) struct PathState {
     pub(crate) seen: Seen,
 }
 
+/// A picture's pixels: straight RGBA, row by row from the top.
+#[derive(Debug, Clone)]
+pub(crate) struct Texture {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) rgba: Arc<Vec<u8>>,
+    /// The pixels as drawing wants them, made on first draw (see `render`).
+    pub(crate) prepared: OnceLock<Arc<Vec<u8>>>,
+}
+
+/// A picture placed in the scene.
+#[derive(Debug, Clone)]
+pub(crate) struct ImageState {
+    /// Index into the slide's textures.
+    pub(crate) texture: usize,
+    /// Pixel (x right, y down from the top left) to scene units, as `kurbo::Affine` takes it:
+    /// `[a, b, c, d, e, f]` maps (x, y) to (a x + c y + e, b x + d y + f).
+    pub(crate) transform: [f64; 6],
+    /// Multiplies the pixels' own opacity.
+    pub(crate) opacity: f64,
+    pub(crate) seen: Seen,
+}
+
+/// What a node shows: a path or a picture.
+#[derive(Debug, Clone)]
+pub(crate) enum NodeState {
+    Path(PathState),
+    Image(ImageState),
+}
+
+impl NodeState {
+    pub(crate) fn seen(&self) -> Seen {
+        match self {
+            NodeState::Path(path) => path.seen,
+            NodeState::Image(image) => image.seen,
+        }
+    }
+}
+
 /// How a node reaches a keyframe from the previous one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Ease {
@@ -87,7 +127,9 @@ pub(crate) struct Keyframe {
 pub(crate) struct Slide {
     pub(crate) kind: String,
     pub(crate) duration: f64,
-    pub(crate) states: Vec<PathState>,
+    pub(crate) states: Vec<NodeState>,
+    /// The pictures image states show.
+    pub(crate) textures: Vec<Texture>,
     /// One keyframe list per node, sorted by time.
     pub(crate) tracks: Vec<Vec<Keyframe>>,
     /// `(t, nodes back to front)`, sorted by time.
@@ -103,7 +145,7 @@ pub(crate) struct Slide {
 
 impl Slide {
     /// Visible nodes at slide time `t`, back to front, with their states.
-    pub(crate) fn evaluate(&self, t: f64) -> Vec<(usize, Cow<'_, PathState>)> {
+    pub(crate) fn evaluate(&self, t: f64) -> Vec<(usize, Cow<'_, NodeState>)> {
         let Some(event) = last_at_or_before(&self.order, |e| e.0, t) else {
             return vec![];
         };
@@ -145,7 +187,7 @@ impl Slide {
     }
 
     /// State of one node at `t`, `None` while hidden.
-    fn state_at(&self, node: usize, t: f64) -> Option<Cow<'_, PathState>> {
+    fn state_at(&self, node: usize, t: f64) -> Option<Cow<'_, NodeState>> {
         let track = self.tracks.get(node)?;
         let i = last_at_or_before(track, |k| k.t, t)?;
         let current = &track[i];
@@ -162,7 +204,12 @@ impl Slide {
         }
 
         let alpha = (t - current.t) / (next.t - current.t);
-        Some(Cow::Owned(lerp_path(start, &self.states[target], alpha)))
+        let blended = match (start, &self.states[target]) {
+            (NodeState::Path(a), NodeState::Path(b)) => NodeState::Path(lerp_path(a, b, alpha)),
+            (NodeState::Image(a), NodeState::Image(b)) => NodeState::Image(lerp_image(a, b, alpha)),
+            _ => return Some(Cow::Borrowed(start)),
+        };
+        Some(Cow::Owned(blended))
     }
 }
 
@@ -177,6 +224,16 @@ fn mix(a: &[f64], b: &[f64], alpha: f64) -> Vec<f64> {
 
 fn mix_one(a: f64, b: f64, alpha: f64) -> f64 {
     a + (b - a) * alpha
+}
+
+/// Straight blend of two placements of the same picture.
+fn lerp_image(a: &ImageState, b: &ImageState, alpha: f64) -> ImageState {
+    ImageState {
+        texture: a.texture,
+        transform: std::array::from_fn(|i| mix_one(a.transform[i], b.transform[i], alpha)),
+        opacity: mix_one(a.opacity, b.opacity, alpha),
+        seen: a.seen,
+    }
 }
 
 /// Straight blend of two states the converter found blendable (same shape structure).

@@ -9,6 +9,8 @@
 //!  PATH     = key u64 | centroid_area f32×6 | points key | subpaths key
 //!  GROW     = path key | closed u8 | tail key
 //!  ROWS     = key u64 | rows key
+//!  MESH     = key u64 | outline u32 | block u32 | points key | uvs key | normals key | triangles key
+//!  TEXTURE  = key u64 | width u32 | height u32 | rgba key
 //!  FRAME    = repeat u32 | view | records key | cameras…
 //!  NOTE     = json
 //! ```
@@ -125,6 +127,23 @@ pub(super) struct Grow {
     pub(super) tail: Arc<Vec<f64>>,
 }
 
+/// A mesh upload: vertices (x, y, z), texture coordinates (u, v) and triangles. A picture is a
+/// textured quad.
+#[derive(Debug, Clone)]
+pub(super) struct Mesh {
+    pub(super) points: Vec<f64>,
+    pub(super) uvs: Vec<f64>,
+    pub(super) triangles: Vec<u32>,
+}
+
+/// A texture upload: straight RGBA pixels, row by row from the top.
+#[derive(Debug, Clone)]
+pub(super) struct Texture {
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) rgba: Arc<Vec<u8>>,
+}
+
 /// Frames `[first, first + repeat)`, showing `records` through `view`.
 #[derive(Debug, Clone)]
 pub(super) struct Shot {
@@ -142,7 +161,9 @@ pub(super) struct Take {
     pub(super) shapes: HashMap<u64, Shape>,
     /// Brushes: straight sRGB RGBA rows.
     pub(super) rows: HashMap<u64, Arc<Vec<[f32; 4]>>>,
-    /// Keys of uploads that are not paths (meshes, points, textures): not converted.
+    pub(super) meshes: HashMap<u64, Mesh>,
+    pub(super) textures: HashMap<u64, Texture>,
+    /// Keys of uploads that are not drawn (points, environments): not converted.
     pub(super) other: HashMap<u64, u8>,
     pub(super) notes: Vec<serde_json::Value>,
 }
@@ -471,7 +492,35 @@ impl Take {
                     let rows = arrays.f32s(rows)?.as_chunks::<4>().0.to_vec();
                     take.rows.insert(key, Arc::new(rows));
                 }
-                POINTS | MESH | TEXTURE | ENVIRONMENT => {
+                MESH => {
+                    let key = f.u64()?;
+                    let (_outline, _block) = (f.u32()?, f.u32()?);
+                    let (points, uvs, _normals, triangles) =
+                        (f.u64()?, f.u64()?, f.u64()?, f.u64()?);
+                    let mesh = Mesh {
+                        points: arrays.f32s(points)?.into_iter().map(f64::from).collect(),
+                        uvs: arrays.f32s(uvs)?.into_iter().map(f64::from).collect(),
+                        triangles: arrays.u32s(triangles)?,
+                    };
+                    take.meshes.insert(key, mesh);
+                }
+                TEXTURE => {
+                    let key = f.u64()?;
+                    let (width, height) = (f.u32()?, f.u32()?);
+                    let rgba = arrays.get(f.u64()?)?;
+                    if rgba.len() != width as usize * height as usize * 4 {
+                        bail!("texture {key:#x} is not {width} x {height} pixels");
+                    }
+                    take.textures.insert(
+                        key,
+                        Texture {
+                            width,
+                            height,
+                            rgba,
+                        },
+                    );
+                }
+                POINTS | ENVIRONMENT => {
                     let key = if op == ENVIRONMENT {
                         f.u32()? as u64
                     } else {

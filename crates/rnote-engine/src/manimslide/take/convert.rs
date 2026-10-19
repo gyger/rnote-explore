@@ -5,19 +5,23 @@
 //!     shape key1 (+ grows) ──M1──► scene points (+ M2·shape key2 for a morph)
 //!     reveal window [lo, hi] ──► curves cut by de Casteljau
 //!     paint (+ paint 2 by mix) ──► fill / stroke / background rows, mixed in OKLab
+//!     or: textured quad (a picture) ──M1──► texture placed by an affine map, opacity
 //!  ──► keyframe of node = slot at t = first / fps
 //! ```
 //!
 //! Consecutive states of a slot blend linearly when their shape is the same (a move, a fade),
-//! and step otherwise. Records that are not paths (meshes, points, images) are left out.
+//! and step otherwise. Records that are neither paths nor pictures (surfaces, points) are
+//! left out.
 
-use super::read::{RECORD, Shape, Shot, Take};
+use super::read::{self, RECORD, Shape, Shot, Take};
 use crate::manimslide::ops;
 use crate::manimslide::timeline::{
-    Cap, Ease, Frame, Join, Keyframe, PathState, Seen, Slide, Subpath,
+    Cap, Ease, Frame, ImageState, Join, Keyframe, NodeState, PathState, Seen, Slide, Subpath,
+    Texture,
 };
 use anyhow::bail;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 // Record layout: 8 u64 keys, then 68 f32 (ManimGX `render::Record`).
 const KEY1: usize = 0;
@@ -26,6 +30,7 @@ const FILL_ROWS: usize = 2;
 const STROKE_ROWS: usize = 3;
 const FILL_ROWS2: usize = 4;
 const STROKE_ROWS2: usize = 5;
+const TEXTURE_KEY: usize = 6;
 const FLAGS: usize = 7;
 /// Float offsets, counted from the first float (byte 64).
 const M1: usize = 0;
@@ -320,8 +325,115 @@ fn join_of(flags: u64) -> Join {
     }
 }
 
+/// The state a record shows; `None` for records that are neither paths nor pictures.
+fn state_of(
+    take: &Take,
+    rec: &Record,
+    frame: u64,
+    center: [f64; 2],
+    textures: &mut Textures,
+) -> Option<NodeState> {
+    if let Some(path) = path_state(take, rec, frame, center) {
+        return Some(NodeState::Path(path));
+    }
+    image_state(take, rec, center, textures).map(NodeState::Image)
+}
+
+/// The picture a textured mesh record shows, placed by the mesh's first triangle: its
+/// vertices and their texture coordinates fix the affine map from pixels to the scene.
+///
+/// Example: ManimGX's ImageMobject is a quad, uv (0, 0) at its top left, (1, 1) at its
+/// bottom right.
+fn image_state(
+    take: &Take,
+    rec: &Record,
+    center: [f64; 2],
+    textures: &mut Textures,
+) -> Option<ImageState> {
+    const DEGENERATE: f64 = 1e-12;
+
+    let mesh = take.meshes.get(&rec.key(KEY1))?;
+    let texture_key = rec.key(TEXTURE_KEY);
+    let texture = take.textures.get(&texture_key)?;
+    let &[i0, i1, i2] = mesh.triangles.first_chunk::<3>()?;
+
+    let offset = if rec.overlay() { center } else { [0.0, 0.0] };
+    let placed = place(&mesh.points, rec.matrix(M1), None, offset);
+    let point = |i: u32| -> Option<[f64; 2]> {
+        let i = i as usize * 2;
+        Some([*placed.get(i)?, *placed.get(i + 1)?])
+    };
+    let uv = |i: u32| -> Option<[f64; 2]> {
+        let i = i as usize * 2;
+        Some([*mesh.uvs.get(i)?, *mesh.uvs.get(i + 1)?])
+    };
+    let (p0, p1, p2) = (point(i0)?, point(i1)?, point(i2)?);
+    let (q0, q1, q2) = (uv(i0)?, uv(i1)?, uv(i2)?);
+
+    // scene = p0 + A (uv - q0), A solved from the triangle's two edges
+    let (e1, e2) = (
+        [p1[0] - p0[0], p1[1] - p0[1]],
+        [p2[0] - p0[0], p2[1] - p0[1]],
+    );
+    let (d1, d2) = (
+        [q1[0] - q0[0], q1[1] - q0[1]],
+        [q2[0] - q0[0], q2[1] - q0[1]],
+    );
+    let det = d1[0] * d2[1] - d2[0] * d1[1];
+    if det.abs() < DEGENERATE {
+        return None;
+    }
+    let a00 = (e1[0] * d2[1] - e2[0] * d1[1]) / det;
+    let a01 = (e2[0] * d1[0] - e1[0] * d2[0]) / det;
+    let a10 = (e1[1] * d2[1] - e2[1] * d1[1]) / det;
+    let a11 = (e2[1] * d1[0] - e1[1] * d2[0]) / det;
+
+    // A pixel (x, y) has uv (x / width, y / height).
+    let (w, h) = (texture.width as f64, texture.height as f64);
+    let transform = [
+        a00 / w,
+        a10 / w,
+        a01 / h,
+        a11 / h,
+        p0[0] - a00 * q0[0] - a01 * q0[1],
+        p0[1] - a10 * q0[0] - a11 * q0[1],
+    ];
+
+    // The paint's opacity multiplies the picture's (ManimGX: texel × colour alpha).
+    let paint = mix_rgba(rec.rgba(FILL), rec.rgba(FILL2), rec.f(DASH + 3));
+    Some(ImageState {
+        texture: textures.index(texture_key, texture),
+        transform,
+        opacity: paint[3],
+        seen: rec.seen(),
+    })
+}
+
+/// The pictures of a slide, each once, by texture key.
+#[derive(Default)]
+struct Textures {
+    textures: Vec<Texture>,
+    index: HashMap<u64, usize>,
+}
+
+impl Textures {
+    fn index(&mut self, key: u64, texture: &read::Texture) -> usize {
+        if let Some(&i) = self.index.get(&key) {
+            return i;
+        }
+        self.textures.push(Texture {
+            width: texture.width,
+            height: texture.height,
+            rgba: texture.rgba.clone(),
+            prepared: OnceLock::new(),
+        });
+        self.index.insert(key, self.textures.len() - 1);
+        self.textures.len() - 1
+    }
+}
+
 /// The state a path record shows; `None` for records that are not paths.
-fn state_of(take: &Take, rec: &Record, frame: u64, center: [f64; 2]) -> Option<PathState> {
+fn path_state(take: &Take, rec: &Record, frame: u64, center: [f64; 2]) -> Option<PathState> {
     let shape = take.shapes.get(&rec.key(KEY1))?;
     let (p1, subpaths) = grown(shape, frame);
 
@@ -365,8 +477,17 @@ fn state_of(take: &Take, rec: &Record, frame: u64, center: [f64; 2]) -> Option<P
     })
 }
 
-/// Whether a slot can blend from `a` to `b`: the same shape, just moved or recolored.
-fn blendable(a: &PathState, b: &PathState) -> bool {
+/// Whether a slot can blend from `a` to `b`: the same shape or picture, just moved or
+/// recolored.
+fn blendable(a: &NodeState, b: &NodeState) -> bool {
+    match (a, b) {
+        (NodeState::Path(a), NodeState::Path(b)) => paths_blendable(a, b),
+        (NodeState::Image(a), NodeState::Image(b)) => a.texture == b.texture && a.seen == b.seen,
+        _ => false,
+    }
+}
+
+fn paths_blendable(a: &PathState, b: &PathState) -> bool {
     a.points.len() == b.points.len()
         && a.subpaths == b.subpaths
         && a.fill.len() == b.fill.len()
@@ -381,34 +502,53 @@ fn blendable(a: &PathState, b: &PathState) -> bool {
 /// States, deduplicated by their exact numbers.
 #[derive(Default)]
 struct States {
-    states: Vec<PathState>,
+    states: Vec<NodeState>,
     index: HashMap<Vec<u64>, usize>,
 }
 
+/// A state's exact numbers, as a key.
+fn state_key(state: &NodeState) -> Vec<u64> {
+    const PATH: u64 = 0;
+    const IMAGE: u64 = 1;
+
+    match state {
+        NodeState::Path(path) => [PATH].into_iter().chain(path_key(path)).collect(),
+        NodeState::Image(image) => [IMAGE, image.texture as u64, image.seen as u64]
+            .into_iter()
+            .chain(image.transform.iter().map(|v| v.to_bits()))
+            .chain([image.opacity.to_bits()])
+            .collect(),
+    }
+}
+
+fn path_key(state: &PathState) -> Vec<u64> {
+    state
+        .points
+        .iter()
+        .chain(&state.fill)
+        .chain(&state.stroke)
+        .chain(state.background.iter().flatten())
+        .chain(state.gradient.iter().flatten())
+        .chain([state.stroke_width, state.background_width].iter())
+        .map(|v| v.to_bits())
+        .chain(
+            state
+                .subpaths
+                .iter()
+                .flat_map(|s| [s.start as u64, s.end as u64, s.closed as u64]),
+        )
+        .chain([
+            state.join as u64,
+            state.cap as u64,
+            state.seen as u64,
+            state.points.len() as u64,
+        ])
+        .collect()
+}
+
 impl States {
-    fn add(&mut self, state: PathState) -> usize {
-        let key: Vec<u64> = state
-            .points
-            .iter()
-            .chain(&state.fill)
-            .chain(&state.stroke)
-            .chain(state.background.iter().flatten())
-            .chain(state.gradient.iter().flatten())
-            .chain([state.stroke_width, state.background_width].iter())
-            .map(|v| v.to_bits())
-            .chain(
-                state
-                    .subpaths
-                    .iter()
-                    .flat_map(|s| [s.start as u64, s.end as u64, s.closed as u64]),
-            )
-            .chain([
-                state.join as u64,
-                state.cap as u64,
-                state.seen as u64,
-                state.points.len() as u64,
-            ])
-            .collect();
+    fn add(&mut self, state: NodeState) -> usize {
+        let key = state_key(&state);
         if let Some(&i) = self.index.get(&key) {
             return i;
         }
@@ -417,7 +557,7 @@ impl States {
         self.states.len() - 1
     }
 
-    fn path(&self, i: usize) -> &PathState {
+    fn get(&self, i: usize) -> &NodeState {
         &self.states[i]
     }
 }
@@ -494,6 +634,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
     let center = [frame.cx, frame.cy];
 
     let mut states = States::default();
+    let mut textures = Textures::default();
     let mut tracks: Vec<Vec<Keyframe>> = Vec::new();
     let mut keys: Vec<(u64, u64)> = Vec::new();
     let mut order: Vec<(f64, Vec<usize>)> = Vec::new();
@@ -513,7 +654,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
 
         let mut shown = Vec::with_capacity(records.len());
         for (slot, rec) in records.iter().enumerate() {
-            let Some(state) = state_of(take, rec, shot.first, center) else {
+            let Some(state) = state_of(take, rec, shot.first, center, &mut textures) else {
                 continue;
             };
             if tracks.len() <= slot {
@@ -527,7 +668,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
             let ease = match track.last().and_then(|k| k.state) {
                 Some(previous)
                     if keys[slot] == shape_keys
-                        && blendable(states.path(previous), states.path(index)) =>
+                        && blendable(states.get(previous), states.get(index)) =>
                 {
                     Ease::Linear
                 }
@@ -563,6 +704,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
         kind: kind.to_owned(),
         duration: take.frames as f64 / take.fps,
         states: states.states,
+        textures: textures.textures,
         tracks: tracks.into_iter().map(compress).collect(),
         order,
         frame,

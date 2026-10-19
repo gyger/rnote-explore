@@ -5,12 +5,15 @@
 //! ```
 
 use super::draw::{DrawPath, DrawSubpath, Paint};
-use super::timeline::{Cap, Frame, Join, Seen, Slide};
+use super::timeline::{Cap, Frame, ImageState, Join, NodeState, Seen, Slide, Texture};
 use anyhow::anyhow;
 use kurbo::{Affine, BezPath, Rect};
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use piet::{RenderContext, StrokeStyle};
+use piet_cairo::{CairoImage, CairoRenderContext};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Cairo's default miter limit, which Manim draws with.
 const MITER_LIMIT: f64 = 10.0;
@@ -45,7 +48,7 @@ impl Slide {
     /// Draw the slide at time `t` into `target`, centered with its aspect ratio kept.
     pub(crate) fn draw_at(
         &self,
-        cx: &mut impl RenderContext,
+        cx: &mut CairoRenderContext,
         t: f64,
         target: Rect,
         cues: Cues,
@@ -61,10 +64,15 @@ impl Slide {
 
             cx.transform(to_pixels);
             for (_, state) in self.evaluate(t) {
-                if cues == Cues::Hidden && state.seen == Seen::ByLecturer {
+                if cues == Cues::Hidden && state.seen() == Seen::ByLecturer {
                     continue;
                 }
-                draw_path(cx, DrawPath::new(&state))?;
+                match state.as_ref() {
+                    NodeState::Path(path) => draw_path(cx, DrawPath::new(path))?,
+                    NodeState::Image(image) => {
+                        draw_image(cx, image, &self.textures[image.texture])?
+                    }
+                }
             }
             Ok(())
         })
@@ -154,6 +162,105 @@ fn stroke_style(join: Join, cap: Cap) -> StrokeStyle {
         Cap::Square => piet::LineCap::Square,
     };
     StrokeStyle::new().line_join(join).line_cap(cap)
+}
+
+/// A picture, its pixels mapped into the scene; its opacity multiplies theirs.
+///
+/// Like ManimGX's GPU, the quad's outline decides coverage and the edge pixels extend
+/// outward: drawn plainly, cairo would blend the outer pixels with transparency.
+fn draw_image(
+    cx: &mut CairoRenderContext,
+    image: &ImageState,
+    texture: &Texture,
+) -> Result<(), piet::Error> {
+    const OPAQUE: f64 = 1.0;
+
+    if image.opacity <= 0.0 {
+        return Ok(());
+    }
+
+    // Prepared once per texture and kept as a cairo image while shown; a fade scales a copy.
+    let prepared = texture.prepared.get_or_init(|| Arc::new(prepared(texture)));
+    let (w, h) = (texture.width as usize, texture.height as usize);
+    let picture = if image.opacity >= OPAQUE {
+        cached_picture(cx, prepared, w + 2, h + 2)?
+    } else {
+        // Fixed point: opacity in 1/256ths, as f64 per byte would be slow for photos.
+        let factor = (image.opacity * 256.0).round() as u16;
+        let faded: Vec<u8> = prepared
+            .iter()
+            .map(|&c| ((c as u16 * factor + 128) >> 8) as u8)
+            .collect();
+        cx.make_image(w + 2, h + 2, &faded, piet::ImageFormat::RgbaPremul)?
+    };
+    cx.with_save(|cx| {
+        cx.transform(Affine::new(image.transform));
+        cx.clip(Rect::new(0.0, 0.0, w as f64, h as f64));
+        let with_border = Rect::new(-1.0, -1.0, w as f64 + 1.0, h as f64 + 1.0);
+        cx.draw_image(&picture, with_border, piet::InterpolationMode::Bilinear);
+        Ok(())
+    })
+}
+
+thread_local! {
+    /// Pictures converted for cairo, so playing does not convert them every frame (piet
+    /// copies each pixel). An entry keeps its pixels alive, so their address stays its key.
+    static PICTURES: RefCell<Vec<(Arc<Vec<u8>>, CairoImage)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Pictures kept per thread; the oldest goes first.
+const PICTURES_KEPT: usize = 32;
+
+fn cached_picture(
+    cx: &mut CairoRenderContext,
+    pixels: &Arc<Vec<u8>>,
+    width: usize,
+    height: usize,
+) -> Result<CairoImage, piet::Error> {
+    let found = PICTURES.with_borrow(|pictures| {
+        pictures
+            .iter()
+            .find(|(kept, _)| Arc::ptr_eq(kept, pixels))
+            .map(|(_, picture)| picture.clone())
+    });
+    if let Some(picture) = found {
+        return Ok(picture);
+    }
+
+    let picture = cx.make_image(width, height, pixels, piet::ImageFormat::RgbaPremul)?;
+    PICTURES.with_borrow_mut(|pictures| {
+        if pictures.len() >= PICTURES_KEPT {
+            pictures.remove(0);
+        }
+        pictures.push((Arc::clone(pixels), picture.clone()));
+    });
+    Ok(picture)
+}
+
+/// The texture premultiplied, with a one-pixel border repeating its edge.
+///
+/// Example: a 2 x 1 texture `AB` becomes 4 x 3: `AABB` three times.
+fn prepared(texture: &Texture) -> Vec<u8> {
+    const CHANNELS: usize = 4;
+    const MAX: u16 = 255;
+
+    let (w, h) = (texture.width as usize, texture.height as usize);
+    let row = |y: usize| &texture.rgba[y * w * CHANNELS..(y + 1) * w * CHANNELS];
+    let mut out = Vec::with_capacity((w + 2) * (h + 2) * CHANNELS);
+    for y in 0..h + 2 {
+        let source = row(y.saturating_sub(1).min(h - 1));
+        out.extend_from_slice(&source[..CHANNELS]);
+        out.extend_from_slice(source);
+        out.extend_from_slice(&source[source.len() - CHANNELS..]);
+    }
+
+    for pixel in out.chunks_exact_mut(CHANNELS) {
+        let alpha = pixel[CHANNELS - 1] as u16;
+        for channel in &mut pixel[..CHANNELS - 1] {
+            *channel = ((*channel as u16 * alpha + MAX / 2) / MAX) as u8;
+        }
+    }
+    out
 }
 
 /// Background stroke, then fill (nonzero), then stroke.
