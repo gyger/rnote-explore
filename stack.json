@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "60f7dd5a5b2d6cfe3c140190fa54996a18bb52d0",
-  "head": "66a1ce7dd24d570aa99706a8eaf03f2b197dfc6a",
+  "prev": "35332e9bb19745247e71ac7ed7800c64d814d87a",
+  "head": "94623d512ba670a8776f72ed4fac61eef4e65d29",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -28,7 +28,7 @@
       "oid": "3bf0b9f044c6da2a1edbdf8e073324160769d70c"
     },
     "projector-tablet": {
-      "oid": "66a1ce7dd24d570aa99706a8eaf03f2b197dfc6a"
+      "oid": "94623d512ba670a8776f72ed4fac61eef4e65d29"
     },
     "screen-ratio-formats": {
       "oid": "6eb1e8aab88c4fd476906f7382b8ecb969ac83e6"

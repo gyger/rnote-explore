@@ -1,7 +1,7 @@
 Bottom: f315c218290ee4c1391ac625974d05611ef85cb5
 Top:    294586aad5a066d396f49f765ebc481b39c28cfb
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-19 14:51:55 +0200
+Date:   2026-10-19 14:52:06 +0200
 
 Write on the projector with a screenless tablet
 
@@ -35,6 +35,10 @@ Approach:
   per view, valid while the store's Arc is unchanged: the store edits
   strokes copy-on-write, so a held Arc never changes in place. Strokes
   being drawn (unique Arc) stay immediate. Both windows now ~60 fps.
+- Markers: upstream multiplies highlighter strokes with the paper and
+  ink below (#1730). draw_strokes_cached does the same for the cached
+  views: it takes the view's paper as a closure and nests one GSK
+  multiply blend per marker, paper and ink at the bottom.
 
 Constraints: builds on dual-screen. A very long stroke still slows the
 main window while drawn; accepted. No file format change.
