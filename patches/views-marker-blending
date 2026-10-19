@@ -1,7 +1,7 @@
-Bottom: 89f36ad22b5d99041040fdfd7f6aa5d990545a75
-Top:    3cf256f5e731bcbd87759749c4a704d04d36d694
+Bottom: df4eb4abec7b6a55c4580ee769f7b249de0ba186
+Top:    9a0517e554a0c6d7ca19662658e7dd40a221b1f1
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-19 10:46:52 +0200
+Date:   2026-10-19 14:38:01 +0200
 
 Blend markers multiplicatively on projector and zoom panel
 

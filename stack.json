@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "d19ff8463f5976298a469c7dbbbfce3050d6a679",
-  "head": "57eafa88c54b494324eb87321b21b9624335c91c",
+  "prev": "fdb9b0f5ae7f570028d568a3ac438a405431d168",
+  "head": "cc2e514efa27f0e0c5ae744f66e1768c4fd00f83",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -11,11 +11,10 @@
     "screen-ratio-formats",
     "dual-screen",
     "projector-tablet",
-    "manim-slides"
-  ],
-  "unapplied": [
+    "manim-slides",
     "views-marker-blending"
   ],
+  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
@@ -34,7 +33,7 @@
       "oid": "6eb1e8aab88c4fd476906f7382b8ecb969ac83e6"
     },
     "views-marker-blending": {
-      "oid": "2f039bc717b14866dc05164cf18ed31c7ce33776"
+      "oid": "cc2e514efa27f0e0c5ae744f66e1768c4fd00f83"
     },
     "windows-defender-warmup": {
       "oid": "7623e87ea70c9a178e228a5444912218b06c7582"
