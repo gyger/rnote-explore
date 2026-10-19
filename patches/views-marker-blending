@@ -1,6 +1,22 @@
 Bottom: 89f36ad22b5d99041040fdfd7f6aa5d990545a75
 Top:    3cf256f5e731bcbd87759749c4a704d04d36d694
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-10-19 10:46:51 +0200
+Date:   2026-10-19 10:46:52 +0200
 
 Blend markers multiplicatively on projector and zoom panel
+
+Purpose: upstream #1730 multiplies highlighter (marker) strokes with
+the paper and ink below on the main canvas. The projector and the zoom
+panel draw through their own raster cache and kept plain alpha, so
+markers looked different there.
+
+Approach: draw_strokes_cached mirrors the main canvas. It takes the
+view's paper as a closure and nests one GSK multiply blend per marker:
+paper and regular ink form the bottom, each marker the top of its
+blend. Cached rasters and immediate runs work per key as before.
+
+Constraints: builds on projector-tablet (raster cache) and
+manim-slides (live strokes). No file format change. The test needs a
+display for GTK and passes trivially without one.
+
+Assisted by: Claude Code / Opus 5.5
