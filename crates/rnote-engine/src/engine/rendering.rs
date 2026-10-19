@@ -217,6 +217,8 @@ impl Engine {
         self.draw_origin_indicator_to_gtk_snapshot(snapshot)?;
         self.zoom_window
             .draw_box_to_gtk_snapshot(snapshot, &self.camera);
+        self.tablet
+            .draw_hover_to_gtk_snapshot(snapshot, &self.camera);
 
         snapshot.restore();
         /*
