@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "2f8c57b8a8c069f4aec348e6252c0b8b9cef7874",
-  "head": "2f039bc717b14866dc05164cf18ed31c7ce33776",
+  "prev": "9bc1a5d7c3a3f81f102fea108823b839525c3911",
+  "head": "964ecaf2974cec9c5a9b8b29ff8bafdfa2d9aaac",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -11,10 +11,11 @@
     "screen-ratio-formats",
     "dual-screen",
     "projector-tablet",
-    "manim-slides",
+    "manim-slides"
+  ],
+  "unapplied": [
     "views-marker-blending"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
