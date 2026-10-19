@@ -147,6 +147,7 @@ impl Engine {
             viewport,
             doc_bounds,
             &self.zoom_rasters,
+            &self.slides.view(self.lecturer_slide_view()),
             paper,
         )?;
 
