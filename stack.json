@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "prev": "a50f100dcf8e15984351857ea96ea7e0ed91a4ea",
+  "prev": "ab9e5965802ad86ae44dd33357023260cef1add3",
   "head": "1e669aeda2a596e08b6b468617f72c1a8ab0f369",
   "applied": [
     "overlay-workflow",
@@ -13,9 +13,7 @@
     "projector-tablet",
     "manim-slides"
   ],
-  "unapplied": [
-    "views-marker-blending"
-  ],
+  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
@@ -32,9 +30,6 @@
     },
     "screen-ratio-formats": {
       "oid": "6eb1e8aab88c4fd476906f7382b8ecb969ac83e6"
-    },
-    "views-marker-blending": {
-      "oid": "cc2e514efa27f0e0c5ae744f66e1768c4fd00f83"
     },
     "windows-defender-warmup": {
       "oid": "7623e87ea70c9a178e228a5444912218b06c7582"
