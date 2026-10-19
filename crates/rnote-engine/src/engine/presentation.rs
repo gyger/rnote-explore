@@ -79,17 +79,26 @@ impl Engine {
             return Ok(());
         }
 
-        snapshot.save();
-        snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-        self.presentation.draw_paper_to_gtk_snapshot(
-            snapshot,
-            page,
-            &self.document.config.background,
-        );
-        snapshot.restore();
+        // Paper is drawn with the strokes: markers multiply with it.
+        let paper = |snapshot: &gtk4::Snapshot| {
+            snapshot.save();
+            snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+            self.presentation.draw_paper_to_gtk_snapshot(
+                snapshot,
+                page,
+                &self.document.config.background,
+            );
+            snapshot.restore();
+        };
 
-        self.store
-            .draw_strokes_cached(snapshot, &camera, page, page, &self.audience_rasters)?;
+        self.store.draw_strokes_cached(
+            snapshot,
+            &camera,
+            page,
+            page,
+            &self.audience_rasters,
+            paper,
+        )?;
 
         self.draw_laser_to_gtk_snapshot(snapshot, &camera)?;
         self.draw_tablet_to_gtk_snapshot(snapshot, &camera);

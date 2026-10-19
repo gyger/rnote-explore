@@ -100,8 +100,8 @@ impl RasterCache {
 }
 
 impl StrokeStore {
-    /// Draw the strokes in `viewport` for a view without per-stroke renderings. Finished
-    /// strokes come from `cache`, the rest is drawn immediate, clipped to `clip`.
+    /// Draw `paper` and the strokes in `viewport` for a view without per-stroke renderings.
+    /// Finished strokes come from `cache`, the rest is drawn immediate, clipped to `clip`.
     pub(crate) fn draw_strokes_cached(
         &self,
         snapshot: &gtk4::Snapshot,
@@ -109,6 +109,7 @@ impl StrokeStore {
         viewport: Aabb,
         clip: Aabb,
         cache: &RasterCache,
+        paper: impl FnOnce(&gtk4::Snapshot),
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
         use gtk4::{graphene, prelude::*};
@@ -133,27 +134,48 @@ impl StrokeStore {
             Ok(())
         };
 
-        let mut run = Vec::new();
-        let mut shown = HashSet::new();
-        for key in self.stroke_keys_as_rendered_intersecting_bounds(viewport) {
-            let Some(stroke) = self.stroke_components.get(key) else {
-                continue;
-            };
-            let Some(node) = cache.node(key, stroke, viewport, image_scale)? else {
-                run.push(key);
-                continue;
-            };
-            draw_run(&mut run)?;
-            shown.insert(key);
+        // Strokes in stacking order; uncached ones are batched into runs.
+        let draw_keys =
+            |keys: &[StrokeKey], shown: &mut HashSet<StrokeKey>| -> anyhow::Result<()> {
+                let mut run = Vec::new();
+                for &key in keys {
+                    let Some(stroke) = self.stroke_components.get(key) else {
+                        continue;
+                    };
+                    let Some(node) = cache.node(key, stroke, viewport, image_scale)? else {
+                        run.push(key);
+                        continue;
+                    };
+                    draw_run(&mut run)?;
+                    shown.insert(key);
 
-            snapshot.save();
-            snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-            snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
-            snapshot.append_node(&node);
-            snapshot.pop();
-            snapshot.restore();
+                    snapshot.save();
+                    snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+                    snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
+                    snapshot.append_node(&node);
+                    snapshot.pop();
+                    snapshot.restore();
+                }
+                draw_run(&mut run)
+            };
+
+        // Markers multiply with the paper and everything below, as on the main canvas:
+        //   Blend(bottom: Blend(bottom: paper + ink, top: marker 1), top: marker 2)
+        let (ink, markers) = self.stroke_keys_as_rendered_intersecting_bounds_partitioned(viewport);
+        for _ in markers.iter() {
+            snapshot.push_blend(gtk4::gsk::BlendMode::Multiply);
         }
-        draw_run(&mut run)?;
+
+        let mut shown = HashSet::new();
+        paper(snapshot);
+        draw_keys(&ink, &mut shown)?;
+
+        for &key in markers.iter() {
+            // End the bottom of this marker's blend, then draw the marker as its top.
+            snapshot.pop();
+            draw_keys(&[key], &mut shown)?;
+            snapshot.pop();
+        }
 
         cache.retain(&shown);
         Ok(())
@@ -163,7 +185,10 @@ impl StrokeStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::chrono_comp::StrokeLayer;
     use crate::strokes::BrushStroke;
+    use gtk4::gsk;
+    use gtk4::prelude::*;
     use rnote_compose::Style;
     use rnote_compose::Transformable;
     use rnote_compose::penpath::Element;
@@ -188,5 +213,57 @@ mod tests {
         let current = store.stroke_components.get(key).unwrap();
         assert!(!Arc::ptr_eq(&held, current));
         assert_eq!(held.bounds(), bounds);
+    }
+
+    /// Whether the node tree holds a multiply blend, e.g. `Clip > Blend(Multiply) > ..`.
+    fn has_multiply(node: &gsk::RenderNode) -> bool {
+        if let Some(blend) = node.downcast_ref::<gsk::BlendNode>() {
+            if blend.blend_mode() == gsk::BlendMode::Multiply {
+                return true;
+            }
+            return has_multiply(&blend.bottom_child()) || has_multiply(&blend.top_child());
+        }
+        if let Some(container) = node.downcast_ref::<gsk::ContainerNode>() {
+            return (0..container.n_children()).any(|i| has_multiply(&container.child(i)));
+        }
+        if let Some(clip) = node.downcast_ref::<gsk::ClipNode>() {
+            return has_multiply(&clip.child());
+        }
+        if let Some(transform) = node.downcast_ref::<gsk::TransformNode>() {
+            return has_multiply(&transform.child());
+        }
+        false
+    }
+
+    /// Markers multiply with the paper and ink below, as on the main canvas.
+    #[test]
+    fn marker_blends_multiply() {
+        // Snapshots need GTK; headless runs have no display to initialize it on.
+        if gtk4::init().is_err() {
+            return;
+        }
+
+        let mut store = StrokeStore::default();
+        let start = Element::new(Vector2::new(10.0, 10.0), 1.0);
+        let stroke = Stroke::BrushStroke(BrushStroke::new(start, Style::default()));
+        store.insert_stroke(stroke.clone(), None);
+        store.insert_stroke(stroke, Some(StrokeLayer::Highlighter));
+
+        let camera = Camera::default();
+        let viewport = camera.viewport();
+        let snapshot = gtk4::Snapshot::new();
+        store
+            .draw_strokes_cached(
+                &snapshot,
+                &camera,
+                viewport,
+                viewport,
+                &RasterCache::default(),
+                |_| {},
+            )
+            .unwrap();
+
+        let node = snapshot.to_node().expect("strokes drawn");
+        assert!(has_multiply(&node));
     }
 }
