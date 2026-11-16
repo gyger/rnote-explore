@@ -1,7 +1,7 @@
 Bottom: 2985e94173bbff53ef753fb92126d7b14b9bbc6c
 Top:    00eb1ef82e5b351dd6747ba24b1399c0ce038a3d
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 16:00:30 +0100
+Date:   2026-11-16 16:00:45 +0100
 
 Present Manim slides natively
 
@@ -38,7 +38,9 @@ Behaviour:
   the end state unless Settings > General "Animate Slides on This
   Screen".
 - Update re-runs the stored scene files and replaces slides by scene
-  name in place, ink kept, one undo step. Only slides whose hash
+  name in place, ink kept, one undo step. Of same-named slides, those
+  made from the re-run file win; the name alone decides only when no
+  slide knows that file (moved file). Only slides whose hash
   changed run again (class, the module-level definitions it uses,
   module settings, SLIDES, local imports, ManimGX and driver version);
   Re-render All ignores the hashes.
