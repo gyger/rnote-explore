@@ -1,19 +1,20 @@
 {
   "version": 5,
-  "prev": "4760d321a731c0a506f39f9b037fd147b5b70e21",
-  "head": "df6d108669599a4212db592489441a17f9c8ccd3",
+  "prev": "8847f17ce09eed350972bf15a25a1e66ce183d40",
+  "head": "114a25816a8b19dba4b30eec039cb5475fc24a6f",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
-    "windows-shortcut-home",
+    "windows-shortcut-home"
+  ],
+  "unapplied": [
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen",
     "projector-tablet",
     "manim-slides"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
