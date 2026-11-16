@@ -1,7 +1,7 @@
 Bottom: ae4b1a1837cfb744a680759f3eb7707abd875ae2
 Top:    f1dd8a30ad936114bf2b74eebe8bcfecccf5f618
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 18:39:23 +0100
+Date:   2026-11-16 18:55:23 +0100
 
 Present Manim slides natively
 
@@ -72,6 +72,10 @@ Approach:
   the raster cache; only a playing slide is drawn per frame. Undo,
   redo and loading drop the playback of slides the store no longer
   backs: the store reuses the keys of undone strokes.
+- The audience window redraws a playing slide on its own frame clock.
+  Redraws passed on from the main window follow the main screen's
+  clock, which drifts against the projector's (repeated or dropped
+  frames).
 - A slide has one camera frame. A take whose camera moves (zoom, pan)
   is refused on import, as 3D scenes are.
 - Import converts each take once, on all cores; still frames are drawn
