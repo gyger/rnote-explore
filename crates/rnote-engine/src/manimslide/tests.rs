@@ -10,6 +10,7 @@
 //!  cue.take      Create a square (left) and a cue circle (right), 1 s
 //!  image.take    a gradient picture fades in (1 s), then moves and shrinks (1 s)
 //!  image@F.png   frame F as ManimGX's own player draws it
+//!  stream.take   pearls redrawn every frame fly right; the oldest is dropped at the edge, 3 s
 //! ```
 
 use super::render::Cues;
@@ -185,6 +186,53 @@ fn hidden_cues_are_not_drawn() {
         drawn_pixels(&mut hidden, 0, half)
     );
     assert!(drawn_pixels(&mut hidden, 0, half) > 0);
+}
+
+// -- redrawn objects -------------------------------------------------------------
+//
+// `stream`: `always_redraw` draws new pearls every frame, oldest first. When the oldest is
+// dropped, the others move up one place in the take's record list.
+
+/// Center x of every path shown at `t`, by node.
+fn centers(slide: &Slide, t: f64) -> std::collections::HashMap<usize, f64> {
+    slide
+        .evaluate(t)
+        .into_iter()
+        .filter_map(|(node, state)| match &*state {
+            super::timeline::NodeState::Path(path) => {
+                let xs = path.points.iter().step_by(2);
+                let (lo, hi) = xs.fold((f64::MAX, f64::MIN), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+                Some((node, (lo + hi) * 0.5))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn redrawn_pearls_are_followed_not_their_places() {
+    /// Samples per take frame, to see what is shown between two frames.
+    const SAMPLES: f64 = 8.0;
+    let slide = slide("stream");
+    let dt = 1.0 / (TAKE_FPS * SAMPLES);
+
+    // The pearls only fly right: none may ever be shown moving back to its neighbour.
+    let mut before = centers(&slide, 0.0);
+    let mut t = dt;
+    while t < slide.duration {
+        let now = centers(&slide, t);
+        for (node, x) in &now {
+            let Some(last) = before.get(node) else {
+                continue;
+            };
+            assert!(
+                x >= &(last - 1e-9),
+                "node {node} at {t:.3} s: back from {last:.3} to {x:.3}"
+            );
+        }
+        before = now;
+        t += dt;
+    }
 }
 
 // -- playing in parts ------------------------------------------------------------

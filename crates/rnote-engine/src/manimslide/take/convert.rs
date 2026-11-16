@@ -20,7 +20,7 @@ use crate::manimslide::timeline::{
     Texture,
 };
 use anyhow::bail;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // Record layout: 8 u64 keys, then 68 f32 (ManimGX `render::Record`).
@@ -640,6 +640,164 @@ fn parts(take: &Take) -> (Vec<f64>, Vec<usize>, &'static str) {
     (stops, loops, kind)
 }
 
+/// Where a state sits, to tell equal objects apart: the middle of its bounds.
+fn anchor(state: &NodeState) -> [f64; 2] {
+    let path = match state {
+        NodeState::Path(path) => path,
+        NodeState::Image(image) => return [image.transform[4], image.transform[5]],
+    };
+    if path.points.is_empty() {
+        return [0.0, 0.0];
+    }
+
+    let middle = |axis: usize| {
+        let values = path.points.iter().skip(axis).step_by(2);
+        let (lo, hi) = values.fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        (lo + hi) * 0.5
+    };
+    [middle(0), middle(1)]
+}
+
+/// What tells a drawn object from the others of its shot.
+#[derive(Debug, Clone, Copy)]
+struct Object {
+    /// Its shapes: equal objects, e.g. the pearls of a stream, share them.
+    keys: (u64, u64),
+    anchor: [f64; 2],
+}
+
+/// Follows the objects from shot to shot, each on its own track.
+///
+/// A take lists what each frame draws, without saying which record is which object. An object
+/// usually keeps its place in the list. A scene that redraws its objects every frame
+/// (`always_redraw`) does not: when the first pearl of a stream is dropped, the others move
+/// up one place. Blending place to place would then show every pearl sliding back to its
+/// neighbour:
+///
+/// ```text
+///  shot n      places:  0   1   2   3          x:  o   o   o   o
+///  shot n+1    places:  0   1   2              x:      o   o   o     (first one dropped)
+///
+///  by place:  place 0 blends o(0) ─► o(1)      one pearl spacing back: wrong
+///  followed:  place 0 goes on o(1)'s track     the nearest equal object: right
+/// ```
+#[derive(Default)]
+struct Objects {
+    tracks: Vec<Vec<Keyframe>>,
+    /// Per track, the object it showed last.
+    last: Vec<Object>,
+    /// Per track, how far its object moved into the last shot; 0 for one that just appeared.
+    steps: Vec<f64>,
+    /// The tracks the previous shot showed, by place.
+    previous: Vec<usize>,
+}
+
+impl Objects {
+    /// An object keeps the track in its place unless an equal one is this much nearer: two
+    /// equal objects passing each other must not swap tracks.
+    const PLACE_BIAS: f64 = 2.0;
+    /// An object found off its place has moved at most this many of its last steps. A record
+    /// further away is another object: ManimGX draws a dropped object once more, on top of
+    /// its neighbour, and that copy must not pull the dropped one's track back.
+    const REACH: f64 = 2.0;
+
+    /// The state `track` shows now, `None` while it is hidden.
+    fn state(&self, track: usize) -> Option<usize> {
+        self.tracks[track].last()?.state
+    }
+
+    /// The track of the previous shot that `object`, drawn in `place`, goes on: one of an
+    /// equal object that `blends` into it, not among the `taken`. `None` for a new object.
+    fn follow(
+        &self,
+        place: usize,
+        object: &Object,
+        taken: &[usize],
+        blends: impl Fn(usize) -> bool,
+    ) -> Option<usize> {
+        let fits = |track: &usize| {
+            self.last[*track].keys == object.keys
+                && !taken.contains(track)
+                && self.state(*track).is_some_and(&blends)
+        };
+        let distance = |track: usize| self.distance(track, object);
+
+        // An object standing still in its place: the usual case, found without a search.
+        let in_place = self.previous.get(place).copied().filter(fits);
+        if let Some(track) = in_place
+            && distance(track) == 0.0
+        {
+            return Some(track);
+        }
+
+        let nearest = self
+            .previous
+            .iter()
+            .copied()
+            .filter(fits)
+            .min_by(|&a, &b| distance(a).total_cmp(&distance(b)));
+        let nearest = nearest.filter(|&track| distance(track) <= Self::REACH * self.steps[track]);
+
+        match (in_place, nearest) {
+            (Some(place), Some(near)) if distance(place) > Self::PLACE_BIAS * distance(near) => {
+                Some(near)
+            }
+            (None, near) => near,
+            (place, _) => place,
+        }
+    }
+
+    /// How far `object` is from what `track` showed last.
+    fn distance(&self, track: usize, object: &Object) -> f64 {
+        let [x, y] = self.last[track].anchor;
+        (x - object.anchor[0]).hypot(y - object.anchor[1])
+    }
+
+    /// A hidden track for a new object, or a new one.
+    fn free_track(&mut self) -> usize {
+        if let Some(track) = (0..self.tracks.len()).find(|&track| self.state(track).is_none()) {
+            return track;
+        }
+        self.tracks.push(Vec::new());
+        self.last.push(Object {
+            keys: (0, 0),
+            anchor: [0.0, 0.0],
+        });
+        self.steps.push(0.0);
+        self.tracks.len() - 1
+    }
+
+    /// Let `track` show `object` in state `state` from `t` on; `ease` tells whether the track
+    /// goes on (linear) or the object is new on it (step).
+    fn show(&mut self, track: usize, object: Object, t: f64, state: usize, ease: Ease) {
+        self.steps[track] = match ease {
+            Ease::Linear => self.distance(track, &object),
+            Ease::Step => 0.0,
+        };
+        self.tracks[track].push(Keyframe {
+            t,
+            state: Some(state),
+            ease,
+        });
+        self.last[track] = object;
+    }
+
+    /// Hide the tracks the shot at `t` did not show, and remember those it did.
+    fn end_shot(&mut self, t: f64, shown: &[usize]) {
+        for &track in &self.previous {
+            if shown.contains(&track) {
+                continue;
+            }
+            self.tracks[track].push(Keyframe {
+                t,
+                state: None,
+                ease: Ease::Step,
+            });
+        }
+        self.previous = shown.to_vec();
+    }
+}
+
 pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
     let first = take.shots.first().expect("a take has shots");
     let frame = frame_of(first)?;
@@ -647,8 +805,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
 
     let mut states = States::default();
     let mut textures = Textures::default();
-    let mut tracks: Vec<Vec<Keyframe>> = Vec::new();
-    let mut keys: Vec<(u64, u64)> = Vec::new();
+    let mut objects = Objects::default();
     let mut order: Vec<(f64, Vec<usize>)> = Vec::new();
 
     for shot in &take.shots {
@@ -670,47 +827,27 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
         records.sort_by_key(Record::overlay);
 
         let mut shown = Vec::with_capacity(records.len());
-        for (slot, rec) in records.iter().enumerate() {
+        for rec in &records {
             let Some(state) = state_of(take, rec, shot.first, center, &mut textures) else {
                 continue;
             };
-            if tracks.len() <= slot {
-                tracks.resize_with(slot + 1, Vec::new);
-                keys.resize(slot + 1, (0, 0));
-            }
-
-            let index = states.add(state);
-            let shape_keys = (rec.key(KEY1), rec.key(KEY2));
-            let track = &mut tracks[slot];
-            let ease = match track.last().and_then(|k| k.state) {
-                Some(previous)
-                    if keys[slot] == shape_keys
-                        && blendable(states.get(previous), states.get(index)) =>
-                {
-                    Ease::Linear
-                }
-                _ => Ease::Step,
+            let object = Object {
+                keys: (rec.key(KEY1), rec.key(KEY2)),
+                anchor: anchor(&state),
             };
-            track.push(Keyframe {
-                t,
-                state: Some(index),
-                ease,
-            });
-            keys[slot] = shape_keys;
-            shown.push(slot);
+            let index = states.add(state);
+
+            // The object's track goes on, blending; a new object takes a track of its own.
+            let blends = |previous| blendable(states.get(previous), states.get(index));
+            let (track, ease) = match objects.follow(shown.len(), &object, &shown, blends) {
+                Some(track) => (track, Ease::Linear),
+                None => (objects.free_track(), Ease::Step),
+            };
+            objects.show(track, object, t, index, ease);
+            shown.push(track);
         }
 
-        // Slots not shown now are hidden.
-        let shown_set: HashSet<usize> = shown.iter().copied().collect();
-        for (slot, track) in tracks.iter_mut().enumerate() {
-            if !shown_set.contains(&slot) && track.last().is_some_and(|k| k.state.is_some()) {
-                track.push(Keyframe {
-                    t,
-                    state: None,
-                    ease: Ease::Step,
-                });
-            }
-        }
+        objects.end_shot(t, &shown);
         if order.last().is_none_or(|(_, last)| *last != shown) {
             order.push((t, shown));
         }
@@ -722,7 +859,7 @@ pub(super) fn slide_of(take: &Take) -> anyhow::Result<Slide> {
         duration: take.frames as f64 / take.fps,
         states: states.states,
         textures: textures.textures,
-        tracks: tracks.into_iter().map(compress).collect(),
+        tracks: objects.tracks.into_iter().map(compress).collect(),
         order,
         frame,
         background: background_of(first),
