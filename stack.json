@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "c7b8e2f0a1c8558094a0b183af1f28df640ed3e7",
-  "head": "4b68d25216bd3dc6305828b3e0d5b4d1a537b21d",
+  "prev": "7ad39d381275225073f8b8c7bce655d63f533a16",
+  "head": "ae308b542ff4d5a267148282e51e1843bf6b64f2",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -10,18 +10,17 @@
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen",
-    "projector-tablet"
-  ],
-  "unapplied": [
+    "projector-tablet",
     "manim-slides"
   ],
+  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
       "oid": "941620b30e6c13697af55d5e42ab73dd26285b48"
     },
     "manim-slides": {
-      "oid": "028a2ec0607a0a9f9e1e3dcf309f94551299581a"
+      "oid": "ae308b542ff4d5a267148282e51e1843bf6b64f2"
     },
     "overlay-workflow": {
       "oid": "e3026123d9abcc1faa96f46c48523a238eff752c"
