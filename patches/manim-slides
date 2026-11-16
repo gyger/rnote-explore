@@ -1,7 +1,7 @@
 Bottom: ae4b1a1837cfb744a680759f3eb7707abd875ae2
 Top:    0e6a8b994a5197d52e49e0b9418ac41a74bae20c
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 17:46:21 +0100
+Date:   2026-11-16 17:46:22 +0100
 
 Present Manim slides natively
 
@@ -63,7 +63,13 @@ Approach:
   Converted pictures are cached per thread for playback.
 - Playback state lives in SlidePlayer beside the store, not in the
   strokes. The store draw loops of all views ask it through the
-  LiveStrokes trait and draw live slides at their stacking place.
+  LiveStrokes trait and draw live slides at their stacking place. A
+  slide standing still names its frame and is cached as that frame by
+  the raster cache; only a playing slide is drawn per frame. Undo,
+  redo and loading drop the playback of slides the store no longer
+  backs: the store reuses the keys of undone strokes.
+- A slide has one camera frame. A take whose camera moves (zoom, pan)
+  is refused on import, as 3D scenes are.
 - Import converts each take once, on all cores; still frames are drawn
   sequentially (parallel cairo drawing measured many times slower).
   Update prepares replacements off the main thread.
