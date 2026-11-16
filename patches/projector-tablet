@@ -1,7 +1,7 @@
 Bottom: 62fcfb34e98952f6605858cd0c7772997112f96c
 Top:    ae4b1a1837cfb744a680759f3eb7707abd875ae2
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 17:46:00 +0100
+Date:   2026-11-16 17:46:21 +0100
 
 Write on the projector with a screenless tablet
 
@@ -33,8 +33,11 @@ Approach:
   ink and starved the main window (frames every ~180 ms while writing
   on the projector). store/raster_cache.rs keeps per-stroke rasters
   per view, valid while the store's Arc is unchanged: the store edits
-  strokes copy-on-write, so a held Arc never changes in place. Strokes
-  being drawn (unique Arc) stay immediate. Both windows now ~60 fps.
+  strokes copy-on-write, so a held Arc never changes in place. A
+  unique Arc stays immediate while a pen works (the stroke being
+  drawn; holding it would copy it per pen event) and is cached while
+  the pen rests, so a document just opened is cached too. Both windows
+  now ~60 fps.
 - Markers: upstream multiplies highlighter strokes with the paper and
   ink below (#1730). draw_strokes_cached does the same for the cached
   views: it takes the view's paper as a closure and nests one GSK
