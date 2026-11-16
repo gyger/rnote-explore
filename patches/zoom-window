@@ -1,7 +1,7 @@
-Bottom: cabf32e1931ab833c8f2ac99a7469d85a1e9cdc4
-Top:    b45ebd85b5cbe5073ce38a5e7d4fbd981a905692
+Bottom: e285c6b12691dcb38d3f1a6af3f287ab0e12299c
+Top:    614b37fbee65a20db37ab04ed91fe8e609ec1aa8
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 18:56:00 +0100
+Date:   2026-11-16 19:36:44 +0100
 
 Add Zoom Window panel for magnified writing
 
