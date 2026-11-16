@@ -1,0 +1,20 @@
+Bottom: cabf32e1931ab833c8f2ac99a7469d85a1e9cdc4
+Top:    cabf32e1931ab833c8f2ac99a7469d85a1e9cdc4
+Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
+Date:   2026-11-16 19:36:43 +0100
+
+Collect OpenSSL DLLs of any version for Windows
+
+Purpose: the Windows installer builds again. MSYS2 moved to OpenSSL 4,
+whose DLLs are libcrypto-4-x64.dll and libssl-4-x64.dll; the installer
+script copied the version 3 names and failed.
+
+Approach: build-aux/inno_build.py collects libcrypto-*-x64.dll and
+libssl-*-x64.dll, whatever the major version, and fails with a message
+when one of the two is missing.
+
+Constraints: not an overlay feature, a fix to upstream's script. Offer
+it upstream; when upstream fixes it, stg rebase reports this patch
+empty and it can be deleted.
+
+Assisted by: Claude Code / Fable 5.2

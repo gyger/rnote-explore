@@ -1,12 +1,13 @@
 {
   "version": 5,
-  "prev": "8847f17ce09eed350972bf15a25a1e66ce183d40",
-  "head": "114a25816a8b19dba4b30eec039cb5475fc24a6f",
+  "prev": "c7c81dc81eee4f2410a4604b2dc9ded1d006a504",
+  "head": "ac60a31af6dcfac2de62c3d7668e957f5e969ebc",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
-    "windows-shortcut-home"
+    "windows-shortcut-home",
+    "windows-openssl-dll"
   ],
   "unapplied": [
     "zoom-window",
@@ -37,6 +38,9 @@
     },
     "windows-installer-ci": {
       "oid": "89c58ffe53da6dfa09ecffb9a8a76fbde888ae04"
+    },
+    "windows-openssl-dll": {
+      "oid": "ac60a31af6dcfac2de62c3d7668e957f5e969ebc"
     },
     "windows-shortcut-home": {
       "oid": "114a25816a8b19dba4b30eec039cb5475fc24a6f"
