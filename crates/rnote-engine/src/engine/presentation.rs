@@ -97,6 +97,7 @@ impl Engine {
             page,
             page,
             &self.audience_rasters,
+            self.penholder.current_pen_progress(),
             paper,
         )?;
 

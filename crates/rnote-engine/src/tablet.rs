@@ -1,7 +1,7 @@
 // Imports
-use crate::WidgetFlags;
 #[cfg(feature = "ui")]
 use crate::Camera;
+use crate::WidgetFlags;
 use p2d::bounding_volume::Aabb;
 use p2d::math::Vector2;
 use rnote_compose::penevent::PenEvent;

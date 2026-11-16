@@ -27,11 +27,11 @@ use crate::pens::PenMode;
 use crate::pens::{Pen, PenStyle};
 use crate::presentation::Presentation;
 use crate::store::StrokeKey;
+#[cfg(feature = "ui")]
+use crate::store::raster_cache::RasterCache;
 use crate::store::render_comp::{self, RenderCompState};
 use crate::strokes::content::GeneratedContentImages;
 use crate::strokes::textstroke::{TextAttribute, TextStyle};
-#[cfg(feature = "ui")]
-use crate::store::raster_cache::RasterCache;
 use crate::tablet::Tablet;
 use crate::zoomwindow::ZoomWindow;
 use crate::{Camera, Document, PenHolder, StrokeStore};

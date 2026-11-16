@@ -4,6 +4,7 @@ use crate::strokes::Stroke;
 use crate::{Camera, Drawable, Image};
 use p2d::bounding_volume::{Aabb, BoundingVolume};
 use p2d::math::Vector2;
+use rnote_compose::penevent::PenProgress;
 use rnote_compose::shapes::Shapeable;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -14,15 +15,17 @@ use std::sync::Arc;
 /// Re-rasterizing every stroke on every frame grows with the ink and starves the other
 /// windows. The store edits strokes copy-on-write, so a shared stroke never changes in place:
 /// the `Arc` held here stays the exact content it was rasterized from. A unique stroke is
-/// edited in place, e.g. by the pen drawing it, and is drawn immediate instead.
+/// edited in place while a pen works, e.g. the stroke being drawn: holding it would copy it
+/// on every pen event, so it is drawn immediate instead.
 ///
 /// ```text
-///  shared stroke (count > 1) ──► cached raster, reused while Arc::ptr_eq
-///  unique stroke (count = 1) ──► drawn immediate each frame
+///  shared stroke (count > 1) ──────────────► cached raster, reused while Arc::ptr_eq
+///  unique stroke (count = 1), pen at rest ─► cached raster; its next edit copies it once
+///  unique stroke (count = 1), pen working ─► drawn immediate each frame
 /// ```
 ///
 /// A stroke turns shared once the history holds a copy of the stroke map and the map is
-/// copied for the next edit, i.e. latest when the next stroke starts.
+/// copied for the next edit. A document just opened has no shared stroke at all.
 #[derive(Debug, Default)]
 pub(crate) struct RasterCache {
     entries: RefCell<HashMap<StrokeKey, Entry>>,
@@ -49,17 +52,18 @@ impl RasterCache {
     /// Extra raster around the viewport, as a share of its size, so small pans reuse it.
     const MARGIN: f64 = 0.5;
 
-    /// Cached raster of `stroke`, rasterized on a miss. `None` for a stroke still being edited
-    /// in place, or outside the viewport.
+    /// Cached raster of `stroke`, rasterized on a miss. `None` for a stroke `pen` may be
+    /// editing in place, or outside the viewport.
     fn node(
         &self,
         key: StrokeKey,
         stroke: &Arc<Stroke>,
         viewport: Aabb,
         image_scale: f64,
+        pen: PenProgress,
     ) -> anyhow::Result<Option<gtk4::gsk::RenderNode>> {
-        // Unique: not yet recorded, the pens mutate it without a copy.
-        if Arc::strong_count(stroke) == 1 {
+        // Unique: not yet recorded, a working pen mutates it without a copy.
+        if Arc::strong_count(stroke) == 1 && pen == PenProgress::InProgress {
             return Ok(None);
         }
         let Some(visible) = stroke.bounds().intersection(&viewport) else {
@@ -95,13 +99,16 @@ impl RasterCache {
 
     /// Drop rasters of strokes no longer shown.
     fn retain(&self, shown: &HashSet<StrokeKey>) {
-        self.entries.borrow_mut().retain(|key, _| shown.contains(key));
+        self.entries
+            .borrow_mut()
+            .retain(|key, _| shown.contains(key));
     }
 }
 
 impl StrokeStore {
     /// Draw `paper` and the strokes in `viewport` for a view without per-stroke renderings.
-    /// Finished strokes come from `cache`, the rest is drawn immediate, clipped to `clip`.
+    /// Strokes come from `cache`; those `pen` may be editing are drawn immediate, clipped to
+    /// `clip`.
     pub(crate) fn draw_strokes_cached(
         &self,
         snapshot: &gtk4::Snapshot,
@@ -109,6 +116,7 @@ impl StrokeStore {
         viewport: Aabb,
         clip: Aabb,
         cache: &RasterCache,
+        pen: PenProgress,
         paper: impl FnOnce(&gtk4::Snapshot),
     ) -> anyhow::Result<()> {
         use crate::ext::GrapheneRectExt;
@@ -142,7 +150,7 @@ impl StrokeStore {
                     let Some(stroke) = self.stroke_components.get(key) else {
                         continue;
                     };
-                    let Some(node) = cache.node(key, stroke, viewport, image_scale)? else {
+                    let Some(node) = cache.node(key, stroke, viewport, image_scale, pen)? else {
                         run.push(key);
                         continue;
                     };
@@ -215,6 +223,31 @@ mod tests {
         assert_eq!(held.bounds(), bounds);
     }
 
+    fn store_with_stroke() -> (StrokeStore, StrokeKey) {
+        let mut store = StrokeStore::default();
+        let start = Element::new(Vector2::new(10.0, 10.0), 1.0);
+        let key = store.insert_stroke(
+            Stroke::BrushStroke(BrushStroke::new(start, Style::default())),
+            None,
+        );
+        (store, key)
+    }
+
+    /// A deck just opened has no shared stroke yet; it must not be rasterized every frame.
+    #[test]
+    fn unrecorded_stroke_is_cached_unless_a_pen_edits() {
+        let (store, key) = store_with_stroke();
+        let stroke = store.stroke_components.get(key).unwrap();
+        let viewport = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
+        let cache = RasterCache::default();
+
+        let editing = cache.node(key, stroke, viewport, 1.0, PenProgress::InProgress);
+        assert!(editing.unwrap().is_none());
+
+        let idle = cache.node(key, stroke, viewport, 1.0, PenProgress::Idle);
+        assert!(idle.unwrap().is_some());
+    }
+
     /// Whether the node tree holds a multiply blend, e.g. `Clip > Blend(Multiply) > ..`.
     fn has_multiply(node: &gsk::RenderNode) -> bool {
         if let Some(blend) = node.downcast_ref::<gsk::BlendNode>() {
@@ -259,6 +292,7 @@ mod tests {
                 viewport,
                 viewport,
                 &RasterCache::default(),
+                PenProgress::Idle,
                 |_| {},
             )
             .unwrap();

@@ -147,6 +147,7 @@ impl Engine {
             viewport,
             doc_bounds,
             &self.zoom_rasters,
+            self.penholder.current_pen_progress(),
             paper,
         )?;
 

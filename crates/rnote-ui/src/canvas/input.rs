@@ -568,9 +568,7 @@ fn surface_target<'a>(
                 .transform()
                 .inverse(),
         ),
-        InputSurface::Audience(widget) => {
-            (widget, canvas.engine_ref().audience_input_transform())
-        }
+        InputSurface::Audience(widget) => (widget, canvas.engine_ref().audience_input_transform()),
     }
 }
 
