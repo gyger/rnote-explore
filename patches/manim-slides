@@ -1,7 +1,7 @@
 Bottom: ae4b1a1837cfb744a680759f3eb7707abd875ae2
 Top:    47cf0c72bc4140b67a5433d0084459682e3a3ea2
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-16 18:29:14 +0100
+Date:   2026-11-16 18:29:25 +0100
 
 Present Manim slides natively
 
@@ -50,6 +50,10 @@ Approach:
   format v1 and converter to keyframed paths (LINEAR when blendable,
   STEP otherwise; paint mixed in OKLab as ManimGX does). Tests compare
   renders against ManimGX's own player (tests/data/manimslide/take).
+  A take does not name its objects, so the converter follows them:
+  each record goes on the track of the nearest equal object of the
+  previous frame, not of the same list place. always_redraw scenes
+  shift the places when an object is dropped (stream.take).
 - Cue flag: the driver patches ManimGX's Feeder.record (pinned version)
   to set flag bit 1<<32 on cue records; the take format is unchanged.
 - Storage: VectorImage.manim_slide (optional) holds the take (base64),
