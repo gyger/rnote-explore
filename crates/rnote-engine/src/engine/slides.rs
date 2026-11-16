@@ -134,6 +134,11 @@ impl Engine {
         Some(self.slide_forward())
     }
 
+    /// Whether a slide is playing, so views must redraw on every frame of their own screen.
+    pub fn slides_playing(&self) -> bool {
+        self.slides.playing()
+    }
+
     /// Advance playing slides; call on every animation frame.
     pub fn slides_handle_frame(&mut self) -> WidgetFlags {
         let result = self.slides.frame();
@@ -458,6 +463,19 @@ mod tests {
         assert_eq!(second, first);
 
         assert_eq!(engine.slides.position(second), Position::Unplayed);
+    }
+
+    #[test]
+    fn playing_is_told_while_a_slide_plays() {
+        let (mut engine, _) = engine_with_slides();
+        assert!(!engine.slides_playing());
+
+        let _ = engine.slide_forward();
+        assert!(engine.slides_playing());
+
+        // Forward again finishes the slide.
+        let _ = engine.slide_forward();
+        assert!(!engine.slides_playing());
     }
 
     #[test]

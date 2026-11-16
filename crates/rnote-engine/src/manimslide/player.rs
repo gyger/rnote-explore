@@ -183,6 +183,13 @@ impl SlidePlayer {
         !self.clocks.is_empty()
     }
 
+    /// Whether any slide is playing now.
+    pub(crate) fn playing(&self) -> bool {
+        self.clocks
+            .values()
+            .any(|clock| matches!(clock, Clock::Playing { .. }))
+    }
+
     pub(crate) fn position(&self, key: StrokeKey) -> Position {
         let (Some(clock), Some(decoded)) = (self.clocks.get(&key), self.played(key)) else {
             return Position::Unplayed;
