@@ -92,8 +92,35 @@ struct UpdateTarget {
     image: VectorImage,
 }
 
-/// Replacements for `targets` by `sources`, matched by scene name; unreadable sources and
-/// those matching no slide are counted.
+impl UpdateTarget {
+    /// The scene file the slide was made from.
+    fn file(&self) -> Option<&Path> {
+        self.image.manim_slide.as_ref()?.file()
+    }
+}
+
+/// The slides among `targets` that `source` replaces: those of its scene name.
+///
+/// Scene names repeat across files (an `Intro` per lecture), so the slides made from the
+/// source's own file win. Only when no slide knows that file, e.g. after it moved, the
+/// name alone decides.
+fn targets_of<'a>(targets: &'a [UpdateTarget], source: &SlideSource) -> Vec<&'a UpdateTarget> {
+    let named: Vec<_> = targets.iter().filter(|t| t.name == source.name()).collect();
+
+    let same_file: Vec<_> = named
+        .iter()
+        .copied()
+        .filter(|t| source.file().is_some() && t.file() == source.file())
+        .collect();
+
+    if same_file.is_empty() {
+        return named;
+    }
+    same_file
+}
+
+/// Replacements for `targets` by `sources`, matched by scene name and file; unreadable
+/// sources and those matching no slide are counted.
 fn replacements(
     targets: Vec<UpdateTarget>,
     sources: Vec<anyhow::Result<SlideSource>>,
@@ -114,7 +141,7 @@ fn replacements(
         };
         let name = source.name().to_owned();
 
-        let matching: Vec<_> = targets.iter().filter(|t| t.name == name).collect();
+        let matching = targets_of(&targets, &source);
         if matching.is_empty() {
             prepared.update.unmatched.push(name);
             continue;
@@ -130,8 +157,7 @@ fn replacements(
 
         for target in matching {
             // A source that knows its file keeps it; a bare one takes the slide's.
-            let old_file = target.image.manim_slide.as_ref().and_then(|s| s.file());
-            let file = source.file().or(old_file).map(Path::to_path_buf);
+            let file = source.file().or(target.file()).map(Path::to_path_buf);
             let source = source.clone().with_file(file);
             let source = if beside_notes {
                 source.beside_notes()
@@ -1065,5 +1091,58 @@ mod tests {
             .filter_map(|&key| code_of(&engine, key))
             .collect();
         assert_eq!(codes, vec!["# first".to_owned(), "# first".to_owned()]);
+    }
+
+    /// An engine with scene Spike from `lecture01.py` on page 0 and from `lecture02.py` on
+    /// page 1, both with code `# first`.
+    fn engine_with_namesakes() -> (Engine, Vec<StrokeKey>) {
+        let mut engine = Engine::default();
+        let _ = engine.camera_set_size(Vector2::new(800.0, 600.0));
+        let pages = rows(&engine, 2);
+
+        let mut keys = vec![];
+        for (file, page) in ["lecture01.py", "lecture02.py"].into_iter().zip(pages) {
+            let mut scene = lecture_scene("# first");
+            scene.path = PathBuf::from(file);
+            scene.takes.truncate(1);
+
+            let sources = scene.sources().collect::<anyhow::Result<Vec<_>>>().unwrap();
+            for (stroke, layer) in
+                Engine::manim_slide_strokes(sources, vec![page], NotesColumn::Without).unwrap()
+            {
+                keys.push(engine.store.insert_stroke(stroke, layer));
+            }
+        }
+        (engine, keys)
+    }
+
+    #[test]
+    fn scene_update_leaves_namesakes_of_other_files() {
+        let (mut engine, keys) = engine_with_namesakes();
+
+        let mut changed = lecture_scene("# second");
+        changed.takes.truncate(1);
+        let (_, update) = engine.update_manim_scene(changed);
+
+        assert_eq!(update.updated, 1);
+        let codes: Vec<String> = keys
+            .iter()
+            .filter_map(|&key| code_of(&engine, key))
+            .collect();
+        assert_eq!(codes, vec!["# second".to_owned(), "# first".to_owned()]);
+        assert_eq!(engine.manim_scene_files().len(), 2);
+    }
+
+    #[test]
+    fn scene_update_finds_slides_of_a_moved_file() {
+        let (mut engine, _) = engine_with_namesakes();
+
+        // No slide knows this path, so the scene name alone decides.
+        let mut moved = lecture_scene("# second");
+        moved.path = PathBuf::from("moved/lecture01.py");
+        moved.takes.truncate(1);
+        let (_, update) = engine.update_manim_scene(moved);
+
+        assert_eq!(update.updated, 2);
     }
 }

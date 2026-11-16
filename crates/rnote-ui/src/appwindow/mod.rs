@@ -329,6 +329,7 @@ impl RnAppWindow {
                 window.set_page_locked(false);
                 window.set_frozen(false);
                 window.set_blanked(false);
+                window.set_first_column(false);
                 window.set_canvas(None);
                 window.set_visible(false);
             }

@@ -251,6 +251,8 @@ impl SlidePlayer {
                 let looped = slide.part_loops(part);
 
                 if decoded.looping() || (looped && end >= slide.duration) {
+                    // A loop left playing would run off screen and keep the views redrawing.
+                    self.clocks.insert(key, Clock::Paused(slide.duration));
                     return Step::Leave;
                 }
                 if looped {

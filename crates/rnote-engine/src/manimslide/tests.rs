@@ -247,6 +247,28 @@ fn looped_part_repeats_until_forward() {
 }
 
 #[test]
+fn leaving_a_looped_last_part_ends_the_slide() {
+    // `parts` with its last part (2-3 s) looping instead.
+    let mut source = parts_source();
+    let mut looped = slide("parts");
+    looped.loops = vec![2];
+    source.converted = Some(std::sync::Arc::new(looped));
+
+    let (mut player, key, start) = (SlidePlayer::default(), StrokeKey::default(), Instant::now());
+    player.play_at(key, &source, start).unwrap();
+    let _ = player.forward_at(key, start); // halts at 1 s
+    let _ = player.forward_at(key, start); // plays 1-2 s
+    let _ = player.forward_at(key, start); // halts at 2 s
+    let _ = player.forward_at(key, start); // loops 2-3 s
+    assert!(player.frame_at(start + secs(5.0)).playing);
+
+    // Forward leaves the slide. Off screen it must not keep playing.
+    assert_eq!(player.forward_at(key, start + secs(5.0)), Step::Leave);
+    assert_eq!(player.position(key), Position::End);
+    assert!(!player.frame_at(start + secs(6.0)).playing);
+}
+
+#[test]
 fn back_halts_at_the_previous_stop_then_leaves() {
     let (mut player, key, start) = halted_at_first_stop();
     let _ = player.forward_at(key, start + secs(2.0)); // the loop

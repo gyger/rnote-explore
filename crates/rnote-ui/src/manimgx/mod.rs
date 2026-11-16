@@ -35,6 +35,11 @@ const ERROR_LINES: usize = 12;
 /// Where Python's error output goes during a run, read if it fails.
 const STDERR_NAME: &str = "stderr.txt";
 
+/// Makes Python write UTF-8 to pipes; on Windows it would use the locale code page, which
+/// garbles scene names such as `Größe`.
+const PYTHON_IO_ENCODING: (&str, &str) = ("PYTHONIOENCODING", "utf-8");
+const LINE_END: u8 = b'\n';
+
 /// A progress line of the driver (`record_takes.py`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Progress {
@@ -171,6 +176,7 @@ fn record_in(
         .arg(path)
         .arg(dir)
         .arg(&known_path)
+        .env(PYTHON_IO_ENCODING.0, PYTHON_IO_ENCODING.1)
         .stdout(Stdio::piped())
         .stderr(std::fs::File::create(&stderr_path)?);
     hide_console(&mut command);
@@ -178,10 +184,11 @@ fn record_in(
 
     // Progress, line by line, as the scenes run.
     if let Some(stdout) = child.stdout.take() {
-        for line in std::io::BufReader::new(stdout).lines() {
-            if let Some(progress) = Progress::parse(&line?) {
-                on_progress(progress);
-            }
+        if let Err(e) = report_progress(stdout, &on_progress) {
+            // Nobody reads the pipe any more: Python would stall on it, in a folder about to go.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e.into());
         }
     }
 
@@ -192,6 +199,20 @@ fn record_in(
         anyhow::bail!("ManimGX failed on {}:\n{}", path.display(), tail.join("\n"));
     }
     takes_in(dir)
+}
+
+/// Tell `on_progress` each progress line of the driver's output, until the output ends.
+fn report_progress(
+    output: impl std::io::Read,
+    on_progress: impl Fn(Progress),
+) -> std::io::Result<()> {
+    // A scene may print in any encoding; only progress lines matter, and they parse lossily.
+    for line in std::io::BufReader::new(output).split(LINE_END) {
+        if let Some(progress) = Progress::parse(&String::from_utf8_lossy(&line?)) {
+            on_progress(progress);
+        }
+    }
+    Ok(())
 }
 
 /// Why Python did not start. Without uv, the user learns what it is for and where to get it.
@@ -272,6 +293,26 @@ mod tests {
         );
         // Anything else a scene prints is not progress.
         assert_eq!(Progress::parse("hello from the scene"), None);
+    }
+
+    #[test]
+    fn scene_prints_in_any_encoding_are_skipped() {
+        // A scene printing "über" through a cp1252 console: 0xFC is not UTF-8.
+        let output: &[u8] = b"scenes 1\n\xFCber\nscene 1 Euler\n";
+        let seen = std::cell::RefCell::new(vec![]);
+
+        report_progress(output, |progress| seen.borrow_mut().push(progress)).unwrap();
+
+        assert_eq!(
+            seen.into_inner(),
+            [
+                Progress::Scenes(1),
+                Progress::Scene {
+                    index: 1,
+                    name: "Euler".to_owned()
+                }
+            ]
+        );
     }
 
     #[test]
