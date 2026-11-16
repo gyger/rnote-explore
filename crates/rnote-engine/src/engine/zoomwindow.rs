@@ -148,6 +148,7 @@ impl Engine {
             doc_bounds,
             &self.zoom_rasters,
             self.penholder.current_pen_progress(),
+            &self.slides.view(self.lecturer_slide_view()),
             paper,
         )?;
 

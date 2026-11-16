@@ -12,7 +12,9 @@ use gtk4::{graphene, gsk};
 use hayro::hayro_syntax;
 use num_traits::ToPrimitive;
 use p2d::math::Vector2;
-use rnote_engine::engine::import::{PdfImportPageSpacing, PdfImportPagesType};
+use rnote_engine::document::Layout;
+use rnote_engine::engine::import::{NotesColumn, PdfImportPageSpacing, PdfImportPagesType};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error};
 
@@ -111,6 +113,209 @@ pub(crate) async fn filedialog_import_file(appwindow: &RnAppWindow) {
             debug!("Did not import file (Error or dialog dismissed by user), Err: {e:?}");
         }
     }
+}
+
+/// Pattern of ManimGX scene files.
+const MANIM_SCENE_PATTERN: &str = "*.py";
+
+/// Pick a ManimGX scene file, run it, and import each of its scenes as a slide, one per page.
+pub(crate) async fn filedialog_import_manim_scene(appwindow: &RnAppWindow, notes: NotesColumn) {
+    let filter = FileFilter::new();
+    filter.add_pattern(MANIM_SCENE_PATTERN);
+    filter.set_name(Some(&gettext("ManimGX Scenes")));
+    let filter_list = gio::ListStore::new::<FileFilter>();
+    filter_list.append(&filter);
+
+    let dialog = FileDialog::builder()
+        .title(gettext("Import Manim Scene"))
+        .modal(true)
+        .accept_label(gettext("Import"))
+        .filters(&filter_list)
+        .default_filter(&filter)
+        .build();
+    if let Some(current_workspace_dir) = appwindow.sidebar().workspacebrowser().dir_list_dir() {
+        dialog.set_initial_folder(Some(&gio::File::for_path(current_workspace_dir)));
+    }
+
+    let path = match dialog.open_future(Some(appwindow)).await {
+        Ok(file) => file.path(),
+        Err(e) => {
+            debug!("Did not import a Manim scene (Error or dialog dismissed by user), Err: {e:?}");
+            return;
+        }
+    };
+    let Some(path) = path else {
+        return;
+    };
+
+    if let Err(e) = import_manim_scene(appwindow, path, notes).await {
+        error!("Importing Manim scene failed, Err: {e:?}");
+        appwindow
+            .overlays()
+            .dispatch_toast_error(&format!("{}: {e}", gettext("Importing Manim scene failed")));
+    }
+}
+
+async fn import_manim_scene(
+    appwindow: &RnAppWindow,
+    path: std::path::PathBuf,
+    notes: NotesColumn,
+) -> anyhow::Result<()> {
+    let canvas = appwindow
+        .active_tab_wrapper()
+        .ok_or_else(|| anyhow!("No active tab to import into"))?
+        .canvas();
+    let Recorded { scene, toast, .. } = record_scene(appwindow, path, HashMap::new()).await?;
+
+    // A notes column needs pages beside each other; the one-column layouts have none.
+    let layout = canvas.engine_ref().document.config.layout;
+    if notes == NotesColumn::With
+        && matches!(layout, Layout::FixedSize | Layout::ContinuousVertical)
+    {
+        let widget_flags = canvas.engine_mut().set_doc_layout(Layout::SemiInfinite);
+        appwindow.handle_widget_flags(widget_flags, &canvas);
+        appwindow.overlays().dispatch_toast_text(
+            &gettext("Switched to the semi-infinite layout for the notes column"),
+            None,
+        );
+    }
+
+    let result = canvas.load_in_manim_scene(scene, notes).await;
+    toast.dismiss();
+    result
+}
+
+/// Which slides an update runs again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rerender {
+    /// Those whose code changed (by their hash).
+    Changed,
+    All,
+}
+
+/// Run the scene files the document's slides came from again, and replace those slides.
+pub(crate) async fn update_manim_scenes(appwindow: &RnAppWindow, rerender: Rerender) {
+    let Some(canvas) = appwindow.active_tab_canvas() else {
+        return;
+    };
+    let files = canvas.engine_ref().manim_scene_files();
+    if files.is_empty() {
+        appwindow
+            .overlays()
+            .dispatch_toast_text(&gettext("No Manim scenes in this document"), None);
+        return;
+    }
+
+    let mut updated = 0;
+    let mut unchanged_total = 0;
+    let mut unmatched = Vec::new();
+    for path in files {
+        let known = match rerender {
+            Rerender::Changed => canvas.engine_ref().manim_slide_hashes(&path),
+            Rerender::All => HashMap::new(),
+        };
+        let Recorded {
+            scene,
+            toast,
+            unchanged,
+        } = match record_scene(appwindow, path.clone(), known).await {
+            Ok(recorded) => recorded,
+            Err(e) => {
+                error!("Running Manim scene failed, Err: {e:?}");
+                appwindow.overlays().dispatch_toast_error(&format!(
+                    "{}: {e}",
+                    gettext("Updating Manim slides failed")
+                ));
+                return;
+            }
+        };
+        let prepared = canvas.engine_ref().prepare_manim_update(scene);
+        let Ok(prepared) = prepared.await else {
+            toast.dismiss();
+            appwindow
+                .overlays()
+                .dispatch_toast_error(&gettext("Updating Manim slides failed"));
+            return;
+        };
+        let (widget_flags, update) = canvas.engine_mut().apply_manim_update(prepared);
+        appwindow.handle_widget_flags(widget_flags, &canvas);
+        toast.dismiss();
+        updated += update.updated;
+        unchanged_total += unchanged;
+        unmatched.extend(update.unmatched);
+    }
+
+    // Example: "Updated 3 slides, 27 unchanged. Not in this document: Intro, Outro"
+    let mut summary = gettext("Updated {} slides").replace("{}", &updated.to_string());
+    if unchanged_total > 0 {
+        summary += &gettext(", {} unchanged").replace("{}", &unchanged_total.to_string());
+    }
+    if !unmatched.is_empty() {
+        summary += &format!(
+            ". {}: {}",
+            gettext("Not in this document"),
+            unmatched.join(", ")
+        );
+    }
+    appwindow.overlays().dispatch_toast_text(&summary, None);
+}
+
+/// A ManimGX run's result.
+struct Recorded {
+    scene: rnote_engine::engine::import::ManimScene,
+    /// Tells that the slides are being drawn, until the caller has placed them and dismisses it.
+    toast: adw::Toast,
+    /// Scenes skipped because their hash is in `known`, unchanged.
+    unchanged: usize,
+}
+
+/// Run ManimGX on `path` off the main thread, telling the user while it runs. Scenes whose
+/// hash is in `known` and unchanged are skipped.
+async fn record_scene(
+    appwindow: &RnAppWindow,
+    path: std::path::PathBuf,
+    known: HashMap<String, String>,
+) -> anyhow::Result<Recorded> {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    let title = |status: &str| format!("ManimGX, {name}: {status}");
+    let mut status = crate::manimgx::Status::default();
+    let toast = appwindow
+        .overlays()
+        .dispatch_toast_text(&title(&status.text()), None);
+
+    // The run reports from its thread; the toast follows here, on the main loop.
+    let (sender, mut receiver) = futures::channel::mpsc::unbounded();
+    let run = gio::spawn_blocking(move || {
+        crate::manimgx::record_scene(&path, &known, |progress| {
+            let _ = sender.unbounded_send(progress);
+        })
+    });
+    while let Some(progress) = receiver.next().await {
+        status.update(progress);
+        toast.set_title(&title(&status.text()));
+    }
+
+    let result = run
+        .await
+        .map_err(|_| anyhow!("the ManimGX run panicked"))
+        .flatten();
+    let scene = match result {
+        Ok(scene) => scene,
+        Err(e) => {
+            toast.dismiss();
+            return Err(e);
+        }
+    };
+    toast.set_title(&title(&gettext("drawing the slides")));
+    Ok(Recorded {
+        scene,
+        toast,
+        unchanged: status.unchanged(),
+    })
 }
 
 /// Check for a pdf encryption and request a password if needed from the user
