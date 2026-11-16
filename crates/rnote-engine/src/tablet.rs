@@ -22,10 +22,22 @@ use rnote_compose::penevent::PenEvent;
 /// tablet gives.
 #[derive(Debug, Default)]
 pub struct Tablet {
-    /// A stroke is running. It may leave the page, but only start on it.
-    pen_down: bool,
+    press: Press,
     /// Last pen position, in document coordinates.
     hover: Option<Vector2>,
+}
+
+/// What the current pen press is doing.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Press {
+    /// The pen is up or hovering.
+    #[default]
+    None,
+    /// A stroke is running. It may leave the page, but only start on it.
+    Drawing,
+    /// The press began in the letterbox. It stays dropped until the pen lifts, also when
+    /// dragged onto the page.
+    Rejected,
 }
 
 impl Tablet {
@@ -44,18 +56,31 @@ impl Tablet {
         match &event {
             PenEvent::Down { element, .. } => {
                 self.hover = Some(element.pos);
-                if !self.pen_down && !bounds.contains_local_point(element.pos) {
+
+                if self.press == Press::None {
+                    self.press = if bounds.contains_local_point(element.pos) {
+                        Press::Drawing
+                    } else {
+                        Press::Rejected
+                    };
+                }
+                if self.press == Press::Rejected {
                     return None;
                 }
-                self.pen_down = true;
             }
             PenEvent::Up { element, .. } | PenEvent::Proximity { element, .. } => {
                 self.hover = Some(element.pos);
-                self.pen_down = false;
+
+                // The pens never saw a rejected press, so they must not see its end either.
+                let rejected = self.press == Press::Rejected;
+                self.press = Press::None;
+                if rejected {
+                    return None;
+                }
             }
             PenEvent::Cancel => {
                 self.hover = None;
-                self.pen_down = false;
+                self.press = Press::None;
             }
             PenEvent::KeyPressed { .. } | PenEvent::Text { .. } => {}
         }
@@ -64,7 +89,7 @@ impl Tablet {
 
     /// Forget the pen, e.g. when it leaves the tablet.
     pub(crate) fn clear(&mut self) -> WidgetFlags {
-        self.pen_down = false;
+        self.press = Press::None;
         self.hover = None;
         let mut widget_flags = WidgetFlags::default();
         widget_flags.redraw = true;
@@ -120,7 +145,32 @@ mod tests {
         assert_relative_eq!(tablet.hover.unwrap(), letterbox);
 
         // A stroke started on the page may leave it.
+        let _ = tablet.clear();
         assert!(tablet.filter_event(down(page.center()), page).is_some());
         assert!(tablet.filter_event(down(letterbox), page).is_some());
+    }
+
+    #[test]
+    fn letterbox_press_stays_dropped() {
+        let mut tablet = Tablet::default();
+        let page = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
+        let element = |pos| Element::new(pos, 1.0);
+        let down = |pos| PenEvent::Down {
+            element: element(pos),
+            modifier_keys: Default::default(),
+        };
+        let up = |pos| PenEvent::Up {
+            element: element(pos),
+            modifier_keys: Default::default(),
+        };
+        let letterbox = Vector2::new(200.0, 50.0);
+
+        // A press that began in the letterbox draws nothing, even once dragged onto the page.
+        assert!(tablet.filter_event(down(letterbox), page).is_none());
+        assert!(tablet.filter_event(down(page.center()), page).is_none());
+        assert!(tablet.filter_event(up(page.center()), page).is_none());
+
+        // The next press starts fresh.
+        assert!(tablet.filter_event(down(page.center()), page).is_some());
     }
 }
