@@ -28,7 +28,16 @@ pub(crate) trait LiveStrokes {
         cx: &mut piet_cairo::CairoRenderContext,
         bounds: Aabb,
     ) -> anyhow::Result<()>;
+
+    /// The still frame the stroke stands on as a job for another thread: it draws what
+    /// `draw_live` would. `None` if it cannot be drawn.
+    fn still_job(&self, key: StrokeKey, stroke: &Stroke) -> Option<DrawJob>;
 }
+
+/// Draws into the given bounds; `cx` is in document coordinates. Made on the UI thread, run on
+/// another.
+pub(crate) type DrawJob =
+    Box<dyn FnOnce(&mut piet_cairo::CairoRenderContext, Aabb) -> anyhow::Result<()> + Send>;
 
 /// The tolerance where check between scale-factors are considered "equal".
 pub(crate) const RENDER_IMAGE_SCALE_TOLERANCE: f64 = 0.01;
