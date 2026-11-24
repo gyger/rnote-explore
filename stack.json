@@ -1,14 +1,13 @@
 {
   "version": 5,
-  "prev": "7a2f920e638ee254917752ce44ffb233028aa1c2",
-  "head": "8516712ff680a667f44820ba023785f04650f383",
+  "prev": "7a45d7d27aef4d85ca7204ca5725292a1e46991a",
+  "head": "23e9945a8219babd726ca239fc94bfa8d1c9fe48",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "windows-shortcut-home",
-    "windows-openssl-dll",
-    "refresh-temp"
+    "windows-openssl-dll"
   ],
   "unapplied": [
     "zoom-window",
@@ -30,9 +29,6 @@
     },
     "projector-tablet": {
       "oid": "910034468242000e00e7d90e0a7be314cc60ae33"
-    },
-    "refresh-temp": {
-      "oid": "8516712ff680a667f44820ba023785f04650f383"
     },
     "screen-ratio-formats": {
       "oid": "0dd420697bf5b84a8ddc9dadadc1d56f63c9fbc9"
