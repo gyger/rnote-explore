@@ -1,7 +1,7 @@
 Bottom: 363aff7ce11dab4fcef96975c9febe73fee5eb8e
 Top:    0e75a3fb6adcc1dce8d5d844bce8d3ac12942a6a
 Author: Samuel Gyger <samuel.gyger@uni-saarland.de>
-Date:   2026-11-24 10:19:15 +0100
+Date:   2026-11-24 10:19:45 +0100
 
 Write on the projector with a screenless tablet
 
@@ -38,6 +38,19 @@ Approach:
   drawn; holding it would copy it per pen event) and is cached while
   the pen rests, so a document just opened is cached too. Both windows
   now ~60 fps.
+- The audience cache never rasterizes while drawing: GTK draws every
+  window on one thread, so a page rasterized there on each page change
+  stalls the main canvas while scrolling. Before a draw the engine
+  orders the page's rasters; one worker thread makes them (not the
+  rayon pool, which stays with the main canvas) and they come back as
+  EngineTask::AudienceRaster. The audience stays on the page it shows
+  until the wanted page has its rasters (Presentation::settle_on). The
+  pages above and below are ordered ahead, like the margin around the
+  main canvas' viewport, placed on the page grid: a raster fits only
+  the exact page. Rasters of pages left are dropped and their orders
+  called off. A raster that fails or panics is not ordered again; its
+  stroke is drawn immediate, so no view waits forever. The zoom
+  panel's cache still rasterizes while drawing.
 - Markers: upstream multiplies highlighter strokes with the paper and
   ink below (#1730). draw_strokes_cached does the same for the cached
   views: it takes the view's paper as a closure and nests one GSK
