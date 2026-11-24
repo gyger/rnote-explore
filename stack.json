@@ -1,8 +1,9 @@
 {
   "version": 5,
-  "prev": "12cc58fdd283f123bb59a3021fee027d38f1a03b",
-  "head": "8eacefc45358ba8bf44b91eb94ac06179b52e3b6",
-  "applied": [
+  "prev": "2e278b68d6dc52dfb86b9ff4de6773603205f710",
+  "head": "d677a0fd6fb780114d96638a1684dbe798840ae0",
+  "applied": [],
+  "unapplied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
@@ -14,7 +15,6 @@
     "projector-tablet",
     "manim-slides"
   ],
-  "unapplied": [],
   "hidden": [],
   "patches": {
     "dual-screen": {
