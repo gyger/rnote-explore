@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "c542bf5aa29360baa3ece7dad77dfb27e3d5b3be",
-  "head": "d1e2c197dad7a62eadcde406d485a4358a2a4cba",
+  "prev": "dc4534e1e62b78202917087fa1bf26f7e3c5afb5",
+  "head": "6c6813b7c3a68217349d0b097cfaf47f79493ae7",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -12,7 +12,8 @@
     "screen-ratio-formats",
     "dual-screen",
     "projector-tablet",
-    "manim-slides"
+    "manim-slides",
+    "refresh-temp"
   ],
   "unapplied": [
     "audience-background-rasters"
@@ -33,6 +34,9 @@
     },
     "projector-tablet": {
       "oid": "addf5e6dcce1dd8ecd97b5fa374744bea3edd511"
+    },
+    "refresh-temp": {
+      "oid": "6c6813b7c3a68217349d0b097cfaf47f79493ae7"
     },
     "screen-ratio-formats": {
       "oid": "0dd420697bf5b84a8ddc9dadadc1d56f63c9fbc9"
