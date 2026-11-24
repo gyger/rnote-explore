@@ -159,6 +159,9 @@ pub enum EngineTask {
     BlinkTypewriterCursor,
     /// Change the permanent zoom to the given value
     Zoom(f64),
+    /// A stroke raster for the audience window, made off the UI thread.
+    #[cfg(feature = "ui")]
+    AudienceRaster(crate::store::raster_cache::Rasterized),
     /// Indicates that the application is quitting. Sent to quit the handler which receives the tasks.
     Quit,
 }
@@ -271,7 +274,7 @@ impl Default for Engine {
             #[cfg(feature = "ui")]
             origin_indicator_rendernode: None,
             #[cfg(feature = "ui")]
-            audience_rasters: RasterCache::default(),
+            audience_rasters: RasterCache::in_background(),
             #[cfg(feature = "ui")]
             zoom_rasters: RasterCache::default(),
             slides: SlidePlayer::default(),
@@ -512,6 +515,11 @@ impl Engine {
                 widget_flags |= self.doc_resize_autoexpand()
                     | self.background_rendering_regenerate()
                     | self.update_rendering_current_viewport();
+            }
+            #[cfg(feature = "ui")]
+            EngineTask::AudienceRaster(rasterized) => {
+                self.audience_rasters.accept(rasterized);
+                widget_flags.redraw = true;
             }
             EngineTask::Quit => {
                 widget_flags |= self.set_active(false);

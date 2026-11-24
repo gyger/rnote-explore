@@ -22,12 +22,11 @@ use super::SlideSource;
 use super::render::Cues;
 use super::timeline::Slide;
 use crate::engine::slides::LecturerSlides;
-use crate::store::{LiveStrokes, StrokeKey};
+use crate::store::{DrawJob, LiveStrokes, StrokeKey};
 use crate::strokes::Stroke;
 use p2d::bounding_volume::Aabb;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 /// Section type substrings with player behavior (slide-format.md, section 9).
@@ -135,12 +134,40 @@ impl Decoded {
     }
 }
 
+/// Decoded slides, shared with the thread that draws still frames.
+type Slides = Mutex<HashMap<StrokeKey, Arc<Decoded>>>;
+
+fn locked(slides: &Slides) -> MutexGuard<'_, HashMap<StrokeKey, Arc<Decoded>>> {
+    // The map holds finished slides only, so it is whole even after a panic.
+    slides.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The slide of `source`, decoded on first use. Decoding is the slow part: `slides` is
+/// not locked meanwhile.
+fn decode(slides: &Slides, key: StrokeKey, source: &SlideSource) -> anyhow::Result<Arc<Decoded>> {
+    if let Some(decoded) = locked(slides).get(&key)
+        && source.is_same_take(&decoded.take)
+    {
+        return Ok(Arc::clone(decoded));
+    }
+
+    let decoded = Arc::new(Decoded {
+        slide: source.slide()?,
+        take: source
+            .take
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("a notes copy is not played"))?,
+    });
+    locked(slides).insert(key, Arc::clone(&decoded));
+    Ok(decoded)
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct SlidePlayer {
     /// Slides that were played; the others show their start.
     clocks: HashMap<StrokeKey, Clock>,
     /// Decoded on first use, also while drawing.
-    decoded: RefCell<HashMap<StrokeKey, Arc<Decoded>>>,
+    decoded: Arc<Slides>,
 }
 
 /// The live slide a stroke shows, if it is one. Notes copies stay still frames.
@@ -156,26 +183,12 @@ fn slide_source(stroke: &Stroke) -> Option<&SlideSource> {
 
 impl SlidePlayer {
     fn decoded(&self, key: StrokeKey, source: &SlideSource) -> anyhow::Result<Arc<Decoded>> {
-        if let Some(decoded) = self.decoded.borrow().get(&key)
-            && source.is_same_take(&decoded.take)
-        {
-            return Ok(Arc::clone(decoded));
-        }
-
-        let decoded = Arc::new(Decoded {
-            slide: source.slide()?,
-            take: source
-                .take
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("a notes copy is not played"))?,
-        });
-        self.decoded.borrow_mut().insert(key, Arc::clone(&decoded));
-        Ok(decoded)
+        decode(&self.decoded, key, source)
     }
 
     /// The decoded slide of a played slide; it was decoded when it started.
     fn played(&self, key: StrokeKey) -> Option<Arc<Decoded>> {
-        self.decoded.borrow().get(&key).cloned()
+        locked(&self.decoded).get(&key).cloned()
     }
 
     /// Whether any slide was played. While none was, no slide is playing or held.
@@ -327,7 +340,7 @@ impl SlidePlayer {
     /// Forget a slide's playback, e.g. after its slide data changed: it shows its start again.
     pub(crate) fn forget(&mut self, key: StrokeKey) {
         self.clocks.remove(&key);
-        self.decoded.borrow_mut().remove(&key);
+        locked(&self.decoded).remove(&key);
     }
 
     /// Forget the playback of every slide that `stroke_of` no longer gives the take it played:
@@ -336,7 +349,7 @@ impl SlidePlayer {
     /// The store hands the keys of undone strokes out again, so a clock left behind would
     /// pass to the next slide imported.
     pub(crate) fn forget_stale<'a>(&mut self, stroke_of: impl Fn(StrokeKey) -> Option<&'a Stroke>) {
-        let decoded = self.decoded.get_mut();
+        let mut decoded = locked(&self.decoded);
 
         decoded.retain(|&key, decoded| {
             stroke_of(key)
@@ -353,7 +366,7 @@ impl SlidePlayer {
 
     pub(crate) fn frame_at(&mut self, now: Instant) -> FrameResult {
         let mut result = FrameResult::default();
-        let decoded = self.decoded.borrow();
+        let decoded = locked(&self.decoded);
 
         for (key, clock) in self.clocks.iter_mut() {
             let Clock::Playing { since, from } = *clock else {
@@ -424,16 +437,75 @@ impl LiveStrokes for ViewSlides<'_> {
             None => 0.0,
         };
 
-        let target = kurbo::Rect::new(
-            bounds.mins[0],
-            bounds.mins[1],
-            bounds.maxs[0],
-            bounds.maxs[1],
-        );
-        let cues = match self.view {
+        decoded
+            .slide
+            .draw_at(cx, t, target(bounds), self.cues(source))
+    }
+
+    fn still_job(&self, key: StrokeKey, stroke: &Stroke) -> Option<DrawJob> {
+        let source = slide_source(stroke)?.clone();
+        let slides = Arc::clone(&self.player.decoded);
+        let clock = self.player.clocks.get(&key).copied();
+        let cues = self.cues(&source);
+
+        // Decoding is left to the job: it would stall the thread that asks.
+        Some(Box::new(move |cx, bounds| {
+            let decoded = decode(&slides, key, &source)?;
+            let t = clock.map_or(0.0, |clock| decoded.time_at(clock, Instant::now()));
+
+            decoded.slide.draw_at(cx, t, target(bounds), cues)
+        }))
+    }
+}
+
+impl ViewSlides<'_> {
+    /// Whether the view shows the cues of `source`: the audience never sees them.
+    fn cues(&self, source: &SlideSource) -> Cues {
+        match self.view {
             SlideView::Audience => Cues::Hidden,
             SlideView::Lecturer(_) => source.cues(),
-        };
-        decoded.slide.draw_at(cx, t, target, cues)
+        }
+    }
+}
+
+fn target(bounds: Aabb) -> kurbo::Rect {
+    kurbo::Rect::new(
+        bounds.mins[0],
+        bounds.mins[1],
+        bounds.maxs[0],
+        bounds.maxs[1],
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Image;
+    use crate::strokes::VectorImage;
+    use p2d::math::Vector2;
+    use std::path::Path;
+
+    const TAKE: &str = "tests/data/manimslide/take/single.take";
+    /// The take's pixel size.
+    const TAKE_SIZE: Vector2 = Vector2::new(480.0, 270.0);
+
+    #[test]
+    fn still_job_converts_the_take_when_run() {
+        let take = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(TAKE)).unwrap();
+        let source = SlideSource::from_take(&take, "Single".to_owned(), String::new()).unwrap();
+        let page = Aabb::new(Vector2::ZERO, TAKE_SIZE);
+        let stroke = Stroke::VectorImage(VectorImage::from_manim_slide(source, page).unwrap());
+        let (player, key) = (SlidePlayer::default(), StrokeKey::default());
+
+        // Asking is done on the UI thread: it must not convert.
+        let job = player
+            .view(SlideView::Audience)
+            .still_job(key, &stroke)
+            .unwrap();
+        assert!(player.played(key).is_none());
+
+        // The player keeps what the job converted, to play it without converting again.
+        Image::gen_with_piet(|cx| job(cx, page), page, 1.0).unwrap();
+        assert!(player.played(key).is_some());
     }
 }
