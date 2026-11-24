@@ -1,14 +1,15 @@
 {
   "version": 5,
-  "prev": "5d897cb52bb68a09f5c845f6bbbcf2bb2c2a79ba",
-  "head": "7f38df7937e31846bc479c7f88a5c8f0a6cffa41",
-  "applied": [],
-  "unapplied": [
+  "prev": "79f7985e71b8398ebde4700a3d4a98868f28520a",
+  "head": "23e9945a8219babd726ca239fc94bfa8d1c9fe48",
+  "applied": [
     "overlay-workflow",
     "windows-installer-ci",
     "windows-defender-warmup",
     "windows-shortcut-home",
-    "windows-openssl-dll",
+    "windows-openssl-dll"
+  ],
+  "unapplied": [
     "zoom-window",
     "screen-ratio-formats",
     "dual-screen",
@@ -24,7 +25,7 @@
       "oid": "8eacefc45358ba8bf44b91eb94ac06179b52e3b6"
     },
     "overlay-workflow": {
-      "oid": "0df4d70f92162ad8e154fec88b2052bbfce55f7c"
+      "oid": "9f9afdf244ce6d9b17e269c3c3a1422a7cb25b45"
     },
     "projector-tablet": {
       "oid": "910034468242000e00e7d90e0a7be314cc60ae33"
@@ -33,16 +34,16 @@
       "oid": "0dd420697bf5b84a8ddc9dadadc1d56f63c9fbc9"
     },
     "windows-defender-warmup": {
-      "oid": "6e19024621b4345b1bac15f6c9847ed787aaf867"
+      "oid": "d65738beb8a93b64fbe48d3057cbc676604d4d7e"
     },
     "windows-installer-ci": {
-      "oid": "89c58ffe53da6dfa09ecffb9a8a76fbde888ae04"
+      "oid": "8cfbcf0fa325f1d01d779e01e0662feba57b8e95"
     },
     "windows-openssl-dll": {
-      "oid": "54182af1f9591e70411c085f2820b8b71c939bea"
+      "oid": "23e9945a8219babd726ca239fc94bfa8d1c9fe48"
     },
     "windows-shortcut-home": {
-      "oid": "114a25816a8b19dba4b30eec039cb5475fc24a6f"
+      "oid": "59625efaa176954dea86896fcbc6b87183fed5e7"
     },
     "zoom-window": {
       "oid": "80919f872648a0fd244b31b883307325783ca1a4"
