@@ -185,6 +185,13 @@ impl Engine {
             .stroke_keys_as_rendered_intersecting_bounds_partitioned(viewport);
 
         let live = self.slides.view(self.lecturer_slide_view());
+        let canvas = crate::store::raster_cache::LiveCanvas {
+            live: &live,
+            cache: &self.live_rasters,
+            camera: &self.camera,
+            pen: self.penholder.current_pen_progress(),
+            tasks_tx: &self.tasks_tx,
+        };
 
         // push clip
         snapshot.push_clip(&graphene::Rect::from_p2d_aabb(doc_bounds));
@@ -200,7 +207,7 @@ impl Engine {
         // bottom image in blend (regular content)
         for &key in non_highlighter_keys.iter() {
             self.store
-                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &live);
+                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &canvas);
         }
 
         // top image in blend (highlighter layer)
@@ -209,11 +216,15 @@ impl Engine {
             snapshot.pop();
 
             self.store
-                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &live);
+                .draw_stroke_key_to_gtk_snapshot(snapshot, key, &canvas);
 
             // pop blend top image
             snapshot.pop();
         }
+
+        // Still frames of slides out of view are not kept.
+        self.live_rasters
+            .keep(non_highlighter_keys.into_iter().chain(highlighter_keys));
 
         // pop clip
         snapshot.pop();

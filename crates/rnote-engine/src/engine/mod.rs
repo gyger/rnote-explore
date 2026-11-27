@@ -243,6 +243,10 @@ pub struct Engine {
     #[cfg(feature = "ui")]
     #[serde(skip)]
     zoom_rasters: RasterCache,
+    // Still frames of live slides on the main canvas, drawn otherwise every frame
+    #[cfg(feature = "ui")]
+    #[serde(skip)]
+    live_rasters: RasterCache,
     // Playback of Manim slides; not saved, slides open at their stored time
     #[serde(skip)]
     slides: SlidePlayer,
@@ -277,6 +281,8 @@ impl Default for Engine {
             audience_rasters: RasterCache::in_background(),
             #[cfg(feature = "ui")]
             zoom_rasters: RasterCache::default(),
+            #[cfg(feature = "ui")]
+            live_rasters: RasterCache::in_background(),
             slides: SlidePlayer::default(),
         }
     }
@@ -518,7 +524,12 @@ impl Engine {
             }
             #[cfg(feature = "ui")]
             EngineTask::AudienceRaster(rasterized) => {
-                self.audience_rasters.accept(rasterized);
+                // Rasters of both caches come back as this task; each takes its own.
+                if self.live_rasters.ordered(&rasterized) {
+                    self.live_rasters.accept(rasterized);
+                } else {
+                    self.audience_rasters.accept(rasterized);
+                }
                 widget_flags.redraw = true;
             }
             EngineTask::Quit => {

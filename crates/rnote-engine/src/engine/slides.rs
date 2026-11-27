@@ -50,7 +50,10 @@ enum PageStep {
 impl Engine {
     /// Play the slide in view, finish it, or go on to the next page once it ended.
     pub fn slide_forward(&mut self) -> WidgetFlags {
-        let Some(key) = self.slide_in_view() else {
+        // A slide flipped, then scrolled away from, follows the setting again.
+        let in_view = self.slide_in_view();
+        self.slides.unflip_others(in_view);
+        let Some(key) = in_view else {
             return self.slide_page_step(PageStep::Next);
         };
 
@@ -65,7 +68,9 @@ impl Engine {
 
     /// Rewind the slide in view, or go back a page when it is at its start.
     pub fn slide_back(&mut self) -> WidgetFlags {
-        let Some(key) = self.slide_in_view() else {
+        let in_view = self.slide_in_view();
+        self.slides.unflip_others(in_view);
+        let Some(key) = in_view else {
             return self.slide_page_step(PageStep::Previous);
         };
 
@@ -110,6 +115,25 @@ impl Engine {
                 Position::Start | Position::Middle
             )
         })
+    }
+
+    /// Whether the lecturer's screen animates the slide in view; else it shows its end state.
+    pub fn slide_animated_here(&self) -> bool {
+        let setting = self.config.read().lecturer_slides;
+        let Some(key) = self.slide_in_view() else {
+            return setting == LecturerSlides::Animate;
+        };
+        self.slides.lecturer_animates(key, setting)
+    }
+
+    /// Animate the slide in view on the lecturer's screen against the setting, or stop it.
+    /// Only this slide: stepping to another one follows the setting again.
+    pub fn slide_flip_animated(&mut self) -> WidgetFlags {
+        let Some(key) = self.slide_in_view() else {
+            return WidgetFlags::default();
+        };
+        self.slides.flip(key);
+        redraw()
     }
 
     /// Step with the Space key: forward, with Shift back. `None` when the key is not for slides.
@@ -260,7 +284,11 @@ impl Engine {
         let new_center = Vector2::new(center[0], (target + 0.5) * page_height);
         let offset = new_center * self.camera.total_zoom() - self.camera.size() * 0.5;
         let widget_flags = self.camera_set_offset_expand(offset);
-        let Some(key) = self.slide_in_view() else {
+
+        // The page stepped to follows the setting, whatever the one left showed.
+        let in_view = self.slide_in_view();
+        self.slides.unflip_others(in_view);
+        let Some(key) = in_view else {
             return widget_flags;
         };
 
@@ -366,6 +394,33 @@ mod tests {
         let _ = engine.slide_page_step(PageStep::Previous);
         assert_eq!(engine.slide_in_view(), Some(first));
         assert!((engine.camera.viewport_center()[1] - page[1] * 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn animating_here_lasts_for_the_slide_in_view() {
+        let (mut engine, [first, second]) = engine_with_slides();
+        assert!(!engine.slide_animated_here());
+
+        let _ = engine.slide_flip_animated();
+        assert!(engine.slide_animated_here());
+        let _ = engine.slide_forward();
+        assert!(engine.slide_animated_here());
+
+        // The next slide follows the setting again, and so does the first once left.
+        let _ = engine.slide_forward();
+        let _ = engine.slide_forward();
+        assert_eq!(engine.slide_in_view(), Some(second));
+        assert!(!engine.slide_animated_here());
+        let _ = engine.slide_back();
+        let _ = engine.slide_back();
+        assert_eq!(engine.slide_in_view(), Some(first));
+        assert!(!engine.slide_animated_here());
+
+        // Flipped under the Animate setting, it shows the end state.
+        engine.config.write().lecturer_slides = LecturerSlides::Animate;
+        assert!(engine.slide_animated_here());
+        let _ = engine.slide_flip_animated();
+        assert!(!engine.slide_animated_here());
     }
 
     #[test]

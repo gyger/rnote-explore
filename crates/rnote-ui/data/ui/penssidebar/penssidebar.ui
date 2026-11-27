@@ -190,6 +190,16 @@
                     </style>
                   </object>
                 </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon_name">slide-animate-here-symbolic</property>
+                    <property name="tooltip_text" translatable="yes">Animate This Slide Here: play the current slide on this screen too, instead of its end state. The next slide follows the setting again</property>
+                    <property name="action-name">win.slide-animate-here</property>
+                    <style>
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </child>
               </object>
             </property>
           </object>

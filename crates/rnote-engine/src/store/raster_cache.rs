@@ -329,6 +329,14 @@ impl RasterCache {
             .is_some_and(|order| order.progress == Progress::Working)
     }
 
+    /// Whether `rasterized` answers an order of this cache, of the caches sharing the tasks.
+    pub(crate) fn ordered(&self, rasterized: &Rasterized) -> bool {
+        self.orders
+            .borrow()
+            .get(&rasterized.key)
+            .is_some_and(|order| Arc::ptr_eq(&order.called_off, &rasterized.order))
+    }
+
     /// Take in a raster from the worker. One nobody waits for any more is dropped.
     pub(crate) fn accept(&self, rasterized: Rasterized) {
         let mut orders = self.orders.borrow_mut();
@@ -358,6 +366,11 @@ impl RasterCache {
         }
     }
 
+    /// Drop rasters of strokes not `drawn`, e.g. slides scrolled away.
+    pub(crate) fn keep(&self, drawn: impl IntoIterator<Item = StrokeKey>) {
+        self.retain(&drawn.into_iter().collect());
+    }
+
     /// Drop rasters of strokes neither shown nor asked for, and call off their orders.
     fn retain(&self, shown: &HashSet<StrokeKey>) {
         let awaited = self.awaited.take();
@@ -371,6 +384,27 @@ impl RasterCache {
             kept(key)
         });
     }
+}
+
+/// What the main canvas draws live strokes with.
+pub(crate) struct LiveCanvas<'a> {
+    pub(crate) live: &'a dyn super::LiveStrokes,
+    /// Still frames, rasterized once instead of every frame.
+    pub(crate) cache: &'a RasterCache,
+    pub(crate) camera: &'a Camera,
+    pub(crate) pen: PenProgress,
+    /// Where rasters made off the UI thread come back.
+    pub(crate) tasks_tx: &'a EngineTaskSender,
+}
+
+/// How the main canvas shows a live stroke.
+pub(crate) enum LiveNode {
+    /// The cached raster of the still frame it stands on.
+    Still(gtk4::gsk::RenderNode),
+    /// Its still frame is being rasterized off the UI thread: the stored rendering stands in.
+    Pending,
+    /// It moves: drawn immediate.
+    Moving,
 }
 
 /// What a raster of a stroke shows.
@@ -396,6 +430,46 @@ impl Pose {
 }
 
 impl StrokeStore {
+    /// Cached raster of the still frame live `stroke` stands on, in document coordinates.
+    /// `None` while it moves: it is drawn immediate then.
+    pub(crate) fn live_still_node(
+        &self,
+        key: StrokeKey,
+        stroke: &Arc<Stroke>,
+        canvas: &LiveCanvas,
+    ) -> LiveNode {
+        let Pose::Still(frame) = Pose::of(canvas.live, key, stroke) else {
+            return LiveNode::Moving;
+        };
+
+        let (viewport, image_scale) = (canvas.camera.viewport(), canvas.camera.image_scale());
+        let still = Some((frame, canvas.live));
+        let node = canvas
+            .cache
+            .node(key, stroke, viewport, image_scale, canvas.pen, still)
+            .inspect_err(|e| error!("Rasterizing a still frame failed, Err: {e:?}"))
+            .ok()
+            .flatten();
+        if let Some(node) = node {
+            return LiveNode::Still(node);
+        }
+
+        // A cache in the background has none yet: order it, e.g. a slide just scrolled to.
+        if canvas.cache.misses == Misses::Background {
+            canvas.cache.request(
+                key,
+                stroke,
+                viewport,
+                image_scale,
+                canvas.pen,
+                still,
+                canvas.tasks_tx,
+            );
+            return LiveNode::Pending;
+        }
+        LiveNode::Moving
+    }
+
     /// Order the rasters of the strokes in `viewport` that `cache` lacks; they arrive through
     /// `tasks_tx`. Call before each draw from a cache in the background: a draw drops the
     /// rasters of strokes neither drawn nor asked for since the draw before.
@@ -742,6 +816,97 @@ mod tests {
         assert_eq!(live.drawn.get(), 2);
     }
 
+    /// Scrolling past halted slides on the main canvas must not redraw them every frame.
+    #[test]
+    fn main_canvas_reuses_still_frames() {
+        on_gtk_thread(|| {
+            let (store, key) = store_with_stroke();
+            let (cache, live) = (RasterCache::default(), StillLive::default());
+            let engine = crate::Engine::default();
+            let tasks_tx = engine.engine_tasks_tx();
+            let canvas = LiveCanvas {
+                live: &live,
+                cache: &cache,
+                camera: &Camera::default(),
+                pen: PenProgress::Idle,
+                tasks_tx: &tasks_tx,
+            };
+            let draw = || {
+                let snapshot = gtk4::Snapshot::new();
+                store.draw_stroke_key_to_gtk_snapshot(&snapshot, key, &canvas);
+            };
+
+            draw();
+            draw();
+            assert_eq!(live.drawn.get(), 1);
+        });
+    }
+
+    /// A slide's first still frame decodes its take, up to a second: never on the UI thread.
+    #[test]
+    fn main_canvas_rasterizes_still_frames_off_thread() {
+        on_gtk_thread(|| {
+            let (store, key) = store_with_stroke();
+            let stroke = store.stroke_components.get(key).unwrap();
+            let (cache, live) = (RasterCache::in_background(), StillLive::default());
+            let mut engine = crate::Engine::default();
+            let tasks_tx = engine.engine_tasks_tx();
+            let canvas = LiveCanvas {
+                live: &live,
+                cache: &cache,
+                camera: &Camera::default(),
+                pen: PenProgress::Idle,
+                tasks_tx: &tasks_tx,
+            };
+
+            // Ordered from the worker; the stored rendering stands in meanwhile.
+            let snapshot = gtk4::Snapshot::new();
+            store.draw_stroke_key_to_gtk_snapshot(&snapshot, key, &canvas);
+            assert_eq!(live.drawn.get(), 0);
+
+            cache.accept(next_raster(&mut engine));
+            let ran_on = live.jobs_ran_on.lock().unwrap().clone();
+            assert_eq!(ran_on.len(), 1);
+            assert_ne!(ran_on[0], std::thread::current().id());
+            assert!(matches!(
+                store.live_still_node(key, stroke, &canvas),
+                LiveNode::Still(_)
+            ));
+        });
+    }
+
+    /// A test body for the GTK thread.
+    type GtkTest = Box<dyn FnOnce() + Send>;
+
+    /// Run `test` on the one thread GTK was initialized on: GTK refuses any other, and every
+    /// test has its own. Skipped without GTK, e.g. headless with no display.
+    fn on_gtk_thread(test: impl FnOnce() + Send + 'static) {
+        static TESTS: std::sync::OnceLock<Option<mpsc::Sender<GtkTest>>> =
+            std::sync::OnceLock::new();
+        let tests = TESTS.get_or_init(|| {
+            let (ready_tx, ready_rx) = mpsc::channel();
+            let (tests, queue) = mpsc::channel::<GtkTest>();
+            std::thread::spawn(move || {
+                let _ = ready_tx.send(gtk4::init().is_ok());
+                queue.into_iter().for_each(|test| test());
+            });
+            ready_rx.recv().unwrap_or(false).then_some(tests)
+        });
+        let Some(tests) = tests else {
+            return;
+        };
+
+        // The GTK thread outlives a failing test; its panic is raised here.
+        let (done_tx, done_rx) = mpsc::channel();
+        let job = move || {
+            let _ = done_tx.send(catch_unwind(AssertUnwindSafe(test)));
+        };
+        tests.send(Box::new(job)).unwrap();
+        if let Err(panic) = done_rx.recv().unwrap() {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
     struct NoLive;
 
     impl crate::store::LiveStrokes for NoLive {
@@ -791,34 +956,31 @@ mod tests {
     /// Markers multiply with the paper and ink below, as on the main canvas.
     #[test]
     fn marker_blends_multiply() {
-        // Snapshots need GTK; headless runs have no display to initialize it on.
-        if gtk4::init().is_err() {
-            return;
-        }
+        on_gtk_thread(|| {
+            let mut store = StrokeStore::default();
+            let start = Element::new(Vector2::new(10.0, 10.0), 1.0);
+            let stroke = Stroke::BrushStroke(BrushStroke::new(start, Style::default()));
+            store.insert_stroke(stroke.clone(), None);
+            store.insert_stroke(stroke, Some(StrokeLayer::Highlighter));
 
-        let mut store = StrokeStore::default();
-        let start = Element::new(Vector2::new(10.0, 10.0), 1.0);
-        let stroke = Stroke::BrushStroke(BrushStroke::new(start, Style::default()));
-        store.insert_stroke(stroke.clone(), None);
-        store.insert_stroke(stroke, Some(StrokeLayer::Highlighter));
+            let camera = Camera::default();
+            let viewport = camera.viewport();
+            let snapshot = gtk4::Snapshot::new();
+            store
+                .draw_strokes_cached(
+                    &snapshot,
+                    &camera,
+                    viewport,
+                    viewport,
+                    &RasterCache::default(),
+                    PenProgress::Idle,
+                    &NoLive,
+                    |_| {},
+                )
+                .unwrap();
 
-        let camera = Camera::default();
-        let viewport = camera.viewport();
-        let snapshot = gtk4::Snapshot::new();
-        store
-            .draw_strokes_cached(
-                &snapshot,
-                &camera,
-                viewport,
-                viewport,
-                &RasterCache::default(),
-                PenProgress::Idle,
-                &NoLive,
-                |_| {},
-            )
-            .unwrap();
-
-        let node = snapshot.to_node().expect("strokes drawn");
-        assert!(has_multiply(&node));
+            let node = snapshot.to_node().expect("strokes drawn");
+            assert!(has_multiply(&node));
+        });
     }
 }

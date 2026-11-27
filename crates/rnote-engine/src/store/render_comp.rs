@@ -522,28 +522,30 @@ impl StrokeStore {
         &self,
         snapshot: &gtk4::Snapshot,
         key: StrokeKey,
-        live: &dyn LiveStrokes,
+        canvas: &super::raster_cache::LiveCanvas,
     ) {
+        use super::raster_cache::LiveNode;
         use crate::ext::{GdkRGBAExt, GrapheneRectExt};
         use gtk4::{gdk, graphene, prelude::*};
         use rnote_compose::color;
 
         // A live stroke replaces its rendering, at its place in the stacking order.
         if let Some(stroke) = self.stroke_components.get(key)
-            && live.is_live(key, stroke)
+            && canvas.live.is_live(key, stroke)
         {
-            let bounds = stroke.bounds();
-            let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
-            let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
-            if let Err(e) = live
-                .draw_live(key, stroke, &mut piet_cx, bounds)
-                .and_then(|_| {
-                    piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
-                })
-            {
-                error!("Drawing live stroke failed, Err: {e:?}");
+            match self.live_still_node(key, stroke, canvas) {
+                // Standing still, e.g. a halted slide scrolled past.
+                LiveNode::Still(node) => {
+                    snapshot.append_node(&node);
+                    return;
+                }
+                // Its still frame is on the way: the rendering below stands in.
+                LiveNode::Pending => {}
+                LiveNode::Moving => {
+                    draw_live_immediate(snapshot, key, stroke, canvas.live);
+                    return;
+                }
             }
-            return;
         }
 
         if let Some(stroke) = self.stroke_components.get(key)
@@ -700,5 +702,29 @@ impl StrokeStore {
         }
 
         Ok(())
+    }
+}
+
+/// Draw a moving live stroke, e.g. a playing slide, for this frame only.
+#[cfg(feature = "ui")]
+fn draw_live_immediate(
+    snapshot: &gtk4::Snapshot,
+    key: StrokeKey,
+    stroke: &Stroke,
+    live: &dyn LiveStrokes,
+) {
+    use crate::ext::GrapheneRectExt;
+    use gtk4::{graphene, prelude::*};
+
+    let bounds = stroke.bounds();
+    let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
+    let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
+    if let Err(e) = live
+        .draw_live(key, stroke, &mut piet_cx, bounds)
+        .and_then(|_| {
+            piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
+        })
+    {
+        error!("Drawing live stroke failed, Err: {e:?}");
     }
 }

@@ -433,6 +433,20 @@ impl RnAppWindow {
         self.overlays().penssidebar().set_slide_pause_button(mode);
     }
 
+    /// Let the animate-here toggle show how this screen draws the slide in view.
+    fn refresh_slide_animate(&self, canvas: &RnCanvas) {
+        let Some(action) = self.presentation_action("slide-animate-here") else {
+            return;
+        };
+        let animated = canvas.engine_ref().slide_animated_here();
+
+        // Called on every redraw while a slide plays; only touch the state on a change.
+        if action.state().and_then(|state| state.get::<bool>()) == Some(animated) {
+            return;
+        }
+        action.set_state(&animated.to_variant());
+    }
+
     /// Move the audience window to the next display.
     pub(crate) fn flip_presentation_screen(&self) {
         let Some(window) = self
@@ -488,6 +502,7 @@ impl RnAppWindow {
         }
         // The audience camera follows the lecturer's page, so scrolling concerns it too.
         if widget_flags.redraw || widget_flags.view_modified {
+            self.refresh_slide_animate(canvas);
             if let Some(window) = self.presentation_window() {
                 window.queue_redraw();
             }

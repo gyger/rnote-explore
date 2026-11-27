@@ -126,6 +126,9 @@ impl RnAppWindow {
         self.add_action(&action_slide_back);
         let action_slide_pause = gio::SimpleAction::new("slide-pause", None);
         self.add_action(&action_slide_pause);
+        let action_slide_animate_here =
+            gio::SimpleAction::new_stateful("slide-animate-here", None, &false.to_variant());
+        self.add_action(&action_slide_animate_here);
         let action_export_doc = gio::SimpleAction::new("export-doc", None);
         self.add_action(&action_export_doc);
         let action_export_doc_pages = gio::SimpleAction::new("export-doc-pages", None);
@@ -1156,6 +1159,20 @@ impl RnAppWindow {
                 }
             ));
         }
+
+        // Animate the slide in view on this screen against the setting; the button's state
+        // follows the engine on every redraw.
+        action_slide_animate_here.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                let Some(canvas) = appwindow.active_tab_canvas() else {
+                    return;
+                };
+                let widget_flags = canvas.engine_mut().slide_flip_animated();
+                appwindow.handle_widget_flags(widget_flags, &canvas);
+            }
+        ));
 
         // Import Manim slides
         action_import_manim_slides.connect_activate(clone!(

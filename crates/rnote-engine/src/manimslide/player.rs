@@ -26,8 +26,9 @@ use crate::store::{DrawJob, LiveStrokes, StrokeKey};
 use crate::strokes::Stroke;
 use p2d::bounding_volume::Aabb;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
 use std::time::Instant;
+use tracing::error;
 
 /// Section type substrings with player behavior (slide-format.md, section 9).
 const TYPE_LOOP: &str = "loop";
@@ -81,6 +82,14 @@ enum Clock {
         since: Instant,
         from: f64,
     },
+}
+
+/// How decoding a slide that waits to play ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Decoding {
+    Done,
+    /// Logged by the decoder; the slide does not play.
+    Failed,
 }
 
 #[derive(Debug)]
@@ -168,6 +177,10 @@ pub(crate) struct SlidePlayer {
     clocks: HashMap<StrokeKey, Clock>,
     /// Decoded on first use, also while drawing.
     decoded: Arc<Slides>,
+    /// The slide the lecturer's screen shows against the setting, until another is stepped to.
+    /// Slides to play once decoded off the UI thread, with where the outcome arrives.
+    starting: HashMap<StrokeKey, mpsc::Receiver<Decoding>>,
+    flipped: Option<StrokeKey>,
 }
 
 /// The live slide a stroke shows, if it is one. Notes copies stay still frames.
@@ -193,17 +206,40 @@ impl SlidePlayer {
 
     /// Whether any slide was played. While none was, no slide is playing or held.
     pub(crate) fn any_played(&self) -> bool {
-        !self.clocks.is_empty()
+        !self.clocks.is_empty() || !self.starting.is_empty()
+    }
+
+    /// Whether the lecturer's screen animates `key` under `setting`.
+    pub(crate) fn lecturer_animates(&self, key: StrokeKey, setting: LecturerSlides) -> bool {
+        (setting == LecturerSlides::Animate) != (self.flipped == Some(key))
+    }
+
+    /// Show `key` against the setting on the lecturer's screen, or let it follow it again.
+    pub(crate) fn flip(&mut self, key: StrokeKey) {
+        self.flipped = (self.flipped != Some(key)).then_some(key);
+    }
+
+    /// Let every slide but `key` follow the setting again, e.g. after stepping to `key`.
+    pub(crate) fn unflip_others(&mut self, key: Option<StrokeKey>) {
+        if self.flipped != key {
+            self.flipped = None;
+        }
     }
 
     /// Whether any slide is playing now.
     pub(crate) fn playing(&self) -> bool {
-        self.clocks
-            .values()
-            .any(|clock| matches!(clock, Clock::Playing { .. }))
+        !self.starting.is_empty()
+            || self
+                .clocks
+                .values()
+                .any(|clock| matches!(clock, Clock::Playing { .. }))
     }
 
     pub(crate) fn position(&self, key: StrokeKey) -> Position {
+        // Still decoding: it plays as soon as it can.
+        if self.starting.contains_key(&key) {
+            return Position::Playing;
+        }
         let (Some(clock), Some(decoded)) = (self.clocks.get(&key), self.played(key)) else {
             return Position::Unplayed;
         };
@@ -222,9 +258,54 @@ impl SlidePlayer {
         Some(decoded.time_at(*self.clocks.get(&key)?, now))
     }
 
-    /// Play `source` from its start.
+    /// Play `source` from its start. One not decoded yet is decoded on another thread and
+    /// starts on the first frame after, see [Self::frame_at].
     pub(crate) fn play(&mut self, key: StrokeKey, source: &SlideSource) -> anyhow::Result<()> {
-        self.play_at(key, source, Instant::now())
+        let decoded = self
+            .played(key)
+            .is_some_and(|decoded| source.is_same_take(&decoded.take));
+        if decoded {
+            return self.play_at(key, source, Instant::now());
+        }
+        if self.starting.contains_key(&key) {
+            return Ok(());
+        }
+
+        let (outcome_tx, outcome_rx) = mpsc::channel();
+        let (slides, source) = (Arc::clone(&self.decoded), source.clone());
+        std::thread::spawn(move || {
+            let outcome = match decode(&slides, key, &source) {
+                Ok(_) => Decoding::Done,
+                Err(e) => {
+                    error!("Decoding Manim slide failed, Err: {e:?}");
+                    Decoding::Failed
+                }
+            };
+            let _ = outcome_tx.send(outcome);
+        });
+        self.starting.insert(key, outcome_rx);
+        Ok(())
+    }
+
+    /// Wait for a slide still decoding to start, e.g. when stepped again meanwhile.
+    fn settle(&mut self, key: StrokeKey) {
+        let Some(outcome_rx) = self.starting.remove(&key) else {
+            return;
+        };
+        if outcome_rx.recv() == Ok(Decoding::Done) {
+            self.start(key, Instant::now());
+        }
+    }
+
+    /// Start the clock of a decoded slide.
+    fn start(&mut self, key: StrokeKey, now: Instant) {
+        self.clocks.insert(
+            key,
+            Clock::Playing {
+                since: now,
+                from: 0.0,
+            },
+        );
     }
 
     pub(crate) fn play_at(
@@ -258,6 +339,7 @@ impl SlidePlayer {
     }
 
     pub(crate) fn forward_at(&mut self, key: StrokeKey, now: Instant) -> Step {
+        self.settle(key);
         let (Some(clock), Some(decoded)) = (self.clocks.get(&key).copied(), self.played(key))
         else {
             return Step::Leave;
@@ -300,6 +382,16 @@ impl SlidePlayer {
     }
 
     pub(crate) fn back_at(&mut self, key: StrokeKey, now: Instant) -> Step {
+        // One still decoding has just started: back rewinds it to its start, as any playing.
+        if self.starting.contains_key(&key) {
+            self.settle(key);
+            let Some(clock) = self.clocks.get_mut(&key) else {
+                return Step::Leave;
+            };
+            *clock = Clock::Paused(0.0);
+            return Step::Stay;
+        }
+
         let Some(t) = self.time_at(key, now) else {
             return Step::Leave;
         };
@@ -317,6 +409,7 @@ impl SlidePlayer {
 
     /// Hold a playing slide at the frame it shows now.
     pub(crate) fn pause(&mut self, key: StrokeKey) {
+        self.settle(key);
         let now = Instant::now();
         if let Some(t) = self.time_at(key, now)
             && let Some(clock @ Clock::Playing { .. }) = self.clocks.get_mut(&key)
@@ -339,6 +432,7 @@ impl SlidePlayer {
 
     /// Forget a slide's playback, e.g. after its slide data changed: it shows its start again.
     pub(crate) fn forget(&mut self, key: StrokeKey) {
+        self.starting.remove(&key);
         self.clocks.remove(&key);
         locked(&self.decoded).remove(&key);
     }
@@ -357,6 +451,11 @@ impl SlidePlayer {
                 .is_some_and(|source| source.is_same_take(&decoded.take))
         });
         self.clocks.retain(|key, _| decoded.contains_key(key));
+        self.starting
+            .retain(|key, _| stroke_of(*key).and_then(slide_source).is_some());
+        self.flipped = self
+            .flipped
+            .filter(|key| stroke_of(*key).and_then(slide_source).is_some());
     }
 
     /// Advance the clocks: slides halt at the end of the part they play.
@@ -366,6 +465,23 @@ impl SlidePlayer {
 
     pub(crate) fn frame_at(&mut self, now: Instant) -> FrameResult {
         let mut result = FrameResult::default();
+
+        // Slides decoded since the last frame start now, from their first frame.
+        let mut decoded_now = Vec::new();
+        self.starting
+            .retain(|&key, outcome_rx| match outcome_rx.try_recv() {
+                Err(mpsc::TryRecvError::Empty) => true,
+                Ok(Decoding::Done) => {
+                    decoded_now.push(key);
+                    false
+                }
+                Ok(Decoding::Failed) | Err(mpsc::TryRecvError::Disconnected) => false,
+            });
+        for key in decoded_now {
+            self.start(key, now);
+        }
+        result.playing = !self.starting.is_empty();
+
         let decoded = locked(&self.decoded);
 
         for (key, clock) in self.clocks.iter_mut() {
@@ -407,9 +523,13 @@ pub(crate) struct ViewSlides<'a> {
 }
 
 impl LiveStrokes for ViewSlides<'_> {
-    fn is_live(&self, _key: StrokeKey, stroke: &Stroke) -> bool {
+    fn is_live(&self, key: StrokeKey, stroke: &Stroke) -> bool {
         // The lecturer's end state is the stored still frame, drawn like any image.
-        slide_source(stroke).is_some() && self.view != SlideView::Lecturer(LecturerSlides::EndState)
+        let animates = match self.view {
+            SlideView::Audience => true,
+            SlideView::Lecturer(setting) => self.player.lecturer_animates(key, setting),
+        };
+        slide_source(stroke).is_some() && animates
     }
 
     fn still_frame(&self, key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
@@ -507,5 +627,22 @@ mod tests {
         // The player keeps what the job converted, to play it without converting again.
         Image::gen_with_piet(|cx| job(cx, page), page, 1.0).unwrap();
         assert!(player.played(key).is_some());
+    }
+
+    /// Converting a take takes up to a second: playing one not converted yet must not stall
+    /// the UI thread that asks.
+    #[test]
+    fn play_converts_the_take_off_thread() {
+        let take = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(TAKE)).unwrap();
+        let source = SlideSource::from_take(&take, "Single".to_owned(), String::new()).unwrap();
+        let (mut player, key) = (SlidePlayer::default(), StrokeKey::default());
+
+        player.play(key, &source).unwrap();
+        assert!(player.starting.contains_key(&key));
+        assert_eq!(player.position(key), Position::Playing);
+
+        // Stepped on meanwhile, it waits for the take, then finishes as if it had played.
+        assert_eq!(player.forward(key), Step::Stay);
+        assert_eq!(player.position(key), Position::End);
     }
 }
