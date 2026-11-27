@@ -546,7 +546,7 @@ impl StrokeStore {
                 // Its still frame is on the way: the rendering below stands in.
                 LiveNode::Pending => {}
                 LiveNode::Moving => {
-                    draw_live_immediate(snapshot, key, stroke, canvas.live);
+                    draw_live_immediate(snapshot, key, stroke, canvas);
                     return;
                 }
             }
@@ -709,26 +709,29 @@ impl StrokeStore {
     }
 }
 
-/// Draw a moving live stroke, e.g. a playing slide, for this frame only.
+/// Draw a moving live stroke, e.g. a playing slide, for this frame only: its visible part
+/// rasterized like its still frames. A cairo node would be snapped to the pixel grid by
+/// GTK, a few pixels off under the fractional canvas offset a page step leaves.
 #[cfg(feature = "ui")]
 fn draw_live_immediate(
     snapshot: &gtk4::Snapshot,
     key: StrokeKey,
     stroke: &Stroke,
-    live: &dyn LiveStrokes,
+    canvas: &super::raster_cache::LiveCanvas,
 ) {
-    use crate::ext::GrapheneRectExt;
-    use gtk4::{graphene, prelude::*};
+    use gtk4::prelude::*;
 
     let bounds = stroke.bounds();
-    let cairo_cx = snapshot.append_cairo(&graphene::Rect::from_p2d_aabb(bounds));
-    let mut piet_cx = piet_cairo::CairoRenderContext::new(&cairo_cx);
-    if let Err(e) = live
-        .draw_live(key, stroke, &mut piet_cx, bounds)
-        .and_then(|_| {
-            piet::RenderContext::finish(&mut piet_cx).map_err(|e| anyhow::anyhow!("{e:?}"))
-        })
+    let Some(visible) = bounds.intersection(&canvas.camera.viewport()) else {
+        return;
+    };
+
+    let draw =
+        |cx: &mut piet_cairo::CairoRenderContext| canvas.live.draw_live(key, stroke, cx, bounds);
+    match Image::gen_with_piet(draw, visible, canvas.camera.image_scale())
+        .and_then(|image| image.to_rendernode())
     {
-        error!("Drawing live stroke failed, Err: {e:?}");
+        Ok(node) => snapshot.append_node(&node),
+        Err(e) => error!("Drawing live stroke failed, Err: {e:?}"),
     }
 }

@@ -684,6 +684,8 @@ mod tests {
         jobs_ran_on: Arc<std::sync::Mutex<Vec<std::thread::ThreadId>>>,
         /// Like a slide whose take is not decoded yet.
         undecoded: bool,
+        /// Like a playing slide: another picture every frame.
+        moving: bool,
     }
 
     impl crate::store::LiveStrokes for StillLive {
@@ -692,7 +694,7 @@ mod tests {
         }
 
         fn still_frame(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
-            Some(self.frame.get())
+            (!self.moving).then(|| self.frame.get())
         }
 
         fn drawable_now(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
@@ -856,6 +858,50 @@ mod tests {
             draw();
             assert_eq!(live.drawn.get(), 1);
         });
+    }
+
+    /// A playing slide lands where its still frames do: a cairo node under a canvas offset
+    /// of a fractional pixel, as page steps leave, is snapped a few pixels off by GTK.
+    #[test]
+    fn main_canvas_draws_moving_slides_as_textures() {
+        on_gtk_thread(|| {
+            let (store, key) = store_with_stroke();
+            let cache = RasterCache::in_background();
+            let live = StillLive {
+                moving: true,
+                ..StillLive::default()
+            };
+            let engine = crate::Engine::default();
+            let tasks_tx = engine.engine_tasks_tx();
+            let canvas = LiveCanvas {
+                live: &live,
+                cache: &cache,
+                camera: &Camera::default(),
+                pen: PenProgress::Idle,
+                tasks_tx: &tasks_tx,
+            };
+
+            let snapshot = gtk4::Snapshot::new();
+            store.draw_stroke_key_to_gtk_snapshot(&snapshot, key, &canvas);
+            assert_eq!(live.drawn.get(), 1);
+
+            let node = snapshot.to_node().expect("slide drawn");
+            assert!(has_texture(&node));
+        });
+    }
+
+    /// Whether the node tree holds a texture, e.g. `Transform > Texture`.
+    fn has_texture(node: &gsk::RenderNode) -> bool {
+        if node.downcast_ref::<gsk::TextureNode>().is_some() {
+            return true;
+        }
+        if let Some(transform) = node.downcast_ref::<gsk::TransformNode>() {
+            return has_texture(&transform.child());
+        }
+        if let Some(container) = node.downcast_ref::<gsk::ContainerNode>() {
+            return (0..container.n_children()).any(|i| has_texture(&container.child(i)));
+        }
+        false
     }
 
     /// A slide's first still frame decodes its take, up to a second: never on the UI thread.
