@@ -1,7 +1,7 @@
 {
   "version": 5,
-  "prev": "1fe97ff4ff05b3ff0bc56fa01d272dba18039aba",
-  "head": "bae4bd5890cb6d7d4cc6d7c459caa3879ca94f51",
+  "prev": "677eb67113946abead8a5d040085eb65d5bf7d26",
+  "head": "ab76001fca297963889c3b583c832b6a987d4725",
   "applied": [
     "overlay-workflow",
     "windows-installer-ci",
@@ -11,8 +11,7 @@
     "screen-ratio-formats",
     "dual-screen",
     "projector-tablet",
-    "manim-slides",
-    "refresh-temp"
+    "manim-slides"
   ],
   "unapplied": [],
   "hidden": [],
@@ -21,16 +20,13 @@
       "oid": "fd9b3d67d2d8418feb63f428bf34acb189272077"
     },
     "manim-slides": {
-      "oid": "14ddc0a9e5f037a50d977ab3acc754a5a5cef6be"
+      "oid": "ab76001fca297963889c3b583c832b6a987d4725"
     },
     "overlay-workflow": {
       "oid": "9f9afdf244ce6d9b17e269c3c3a1422a7cb25b45"
     },
     "projector-tablet": {
       "oid": "9c6f9cb27f98c8a54d172339dd3d96afd24bfa2a"
-    },
-    "refresh-temp": {
-      "oid": "bae4bd5890cb6d7d4cc6d7c459caa3879ca94f51"
     },
     "screen-ratio-formats": {
       "oid": "0b9707e573a57575c628ff2e0256d9065d61eb6b"
