@@ -206,6 +206,12 @@ impl RasterCache {
         if self.misses == Misses::Background {
             return Ok(None);
         }
+        // A slide not decoded yet waits for a view that decodes in the background.
+        if let Some((_, live)) = still
+            && !live.drawable_now(key, stroke)
+        {
+            return Ok(None);
+        }
 
         let Some(region) = Self::region(stroke, viewport) else {
             return Ok(None);
@@ -568,6 +574,10 @@ impl StrokeStore {
                     }
                 };
                 let Some(node) = cache.node(key, stroke, viewport, image_scale, pen, still)? else {
+                    // A slide not decoded yet is left out until its raster arrives.
+                    if still.is_some() && !live.drawable_now(key, stroke) {
+                        continue;
+                    }
                     run.push(key);
                     continue;
                 };
@@ -672,6 +682,8 @@ mod tests {
         drawn: std::cell::Cell<usize>,
         /// The threads its still jobs ran on.
         jobs_ran_on: Arc<std::sync::Mutex<Vec<std::thread::ThreadId>>>,
+        /// Like a slide whose take is not decoded yet.
+        undecoded: bool,
     }
 
     impl crate::store::LiveStrokes for StillLive {
@@ -681,6 +693,10 @@ mod tests {
 
         fn still_frame(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
             Some(self.frame.get())
+        }
+
+        fn drawable_now(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
+            !self.undecoded
         }
 
         fn draw_live(
@@ -875,6 +891,55 @@ mod tests {
         });
     }
 
+    /// The zoom window rasterizes while drawing: a slide not decoded yet waits for another
+    /// view's worker to decode it.
+    #[test]
+    fn inline_cache_skips_undecoded_slides() {
+        let (store, key) = store_with_stroke();
+        let stroke = store.stroke_components.get(key).unwrap();
+        let viewport = Aabb::new(Vector2::ZERO, Vector2::new(100.0, 100.0));
+        let live = StillLive {
+            undecoded: true,
+            ..StillLive::default()
+        };
+
+        let still = Some((0, &live as &dyn crate::store::LiveStrokes));
+        let node =
+            RasterCache::default().node(key, stroke, viewport, 1.0, PenProgress::Idle, still);
+        assert!(node.unwrap().is_none());
+        assert_eq!(live.drawn.get(), 0);
+    }
+
+    /// The projector's first page shows before its rasters arrive: a slide not decoded yet
+    /// must not be decoded on the UI thread to draw it meanwhile.
+    #[test]
+    fn background_view_skips_undecoded_slides() {
+        on_gtk_thread(|| {
+            let (store, _key) = store_with_stroke();
+            let camera = Camera::default();
+            let viewport = camera.viewport();
+            let cache = RasterCache::in_background();
+            let live = StillLive {
+                undecoded: true,
+                ..StillLive::default()
+            };
+
+            store
+                .draw_strokes_cached(
+                    &gtk4::Snapshot::new(),
+                    &camera,
+                    viewport,
+                    viewport,
+                    &cache,
+                    PenProgress::Idle,
+                    &live,
+                    |_| {},
+                )
+                .unwrap();
+            assert_eq!(live.drawn.get(), 0);
+        });
+    }
+
     /// A test body for the GTK thread.
     type GtkTest = Box<dyn FnOnce() + Send>;
 
@@ -916,6 +981,10 @@ mod tests {
 
         fn still_frame(&self, _key: StrokeKey, _stroke: &Stroke) -> Option<u64> {
             None
+        }
+
+        fn drawable_now(&self, _key: StrokeKey, _stroke: &Stroke) -> bool {
+            true
         }
 
         fn draw_live(

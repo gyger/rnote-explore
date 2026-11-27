@@ -20,6 +20,10 @@ pub(crate) trait LiveStrokes {
     /// ids draw the same picture, so it can be kept. `None` while it changes every frame.
     fn still_frame(&self, key: StrokeKey, stroke: &Stroke) -> Option<u64>;
 
+    /// Whether `draw_live` draws the stroke without delay. A slide not decoded yet is not:
+    /// decoding takes up to a second, which must not stall the UI thread.
+    fn drawable_now(&self, key: StrokeKey, stroke: &Stroke) -> bool;
+
     /// Draw the stroke into `bounds`; `cx` is in document coordinates.
     fn draw_live(
         &self,

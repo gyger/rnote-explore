@@ -252,7 +252,8 @@ impl Engine {
         if let Err(e) = self.slides.show_end(key, source) {
             error!("Showing Manim slide failed, Err: {e:?}");
         }
-        redraw()
+        // A slide still decoding takes its end state on a later frame.
+        self.slide_frames()
     }
 
     /// Forget the playback of slides the store no longer holds as played, after it changed
@@ -525,7 +526,13 @@ mod tests {
         let (mut engine, _) = engine_with_slides();
         assert!(!engine.slides_playing());
 
+        // It plays once decoded in the background, from the frame it arrives on.
         let _ = engine.slide_forward();
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        while !engine.slides_playing() && Instant::now() < deadline {
+            let _ = engine.slides_handle_frame();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
         assert!(engine.slides_playing());
 
         // Forward again finishes the slide.
