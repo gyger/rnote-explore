@@ -1075,7 +1075,9 @@ mod tests {
             let _ = done_tx.send(catch_unwind(AssertUnwindSafe(test)));
         };
         tests.send(Box::new(job)).unwrap();
-        if let Err(panic) = done_rx.recv().unwrap() {
+        // Bounded: a test stuck on the GTK thread fails by name instead of hanging the run.
+        let done = done_rx.recv_timeout(std::time::Duration::from_secs(60));
+        if let Err(panic) = done.expect("GTK test timed out") {
             std::panic::resume_unwind(panic);
         }
     }

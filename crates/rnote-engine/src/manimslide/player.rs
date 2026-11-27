@@ -281,6 +281,18 @@ impl SlidePlayer {
         }
     }
 
+    /// Whether `key` was paused inside a part, not halted at a part bound: its start, a
+    /// stop or its end. Halts land exactly on a bound, pauses anywhere.
+    pub(crate) fn paused_mid_part(&self, key: StrokeKey) -> bool {
+        let (Some(Clock::Paused(t)), Some(decoded)) =
+            (self.clocks.get(&key).copied(), self.played(key))
+        else {
+            return false;
+        };
+        let slide = &decoded.slide;
+        t > 0.0 && t < slide.duration && !slide.stops.contains(&t)
+    }
+
     /// Slide time of a played slide at `now`.
     pub(crate) fn time_at(&self, key: StrokeKey, now: Instant) -> Option<f64> {
         let decoded = self.played(key)?;
@@ -713,7 +725,9 @@ mod tests {
 
     /// Run frames until the background decoding is done, as the animation frames do.
     fn finish_decoding(player: &mut SlidePlayer) {
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         while !player.pending.is_empty() {
+            assert!(Instant::now() < deadline, "decoding timed out");
             let _ = player.frame();
             std::thread::sleep(std::time::Duration::from_millis(1));
         }

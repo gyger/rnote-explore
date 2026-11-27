@@ -17,6 +17,7 @@ use rnote_engine::engine::StrokeContent;
 use rnote_engine::engine::import::NotesColumn;
 use rnote_engine::ext::GraphenePointExt;
 use rnote_engine::pens::PenStyle;
+use rnote_engine::pens::pensconfig::toolsconfig::ToolStyle;
 use rnote_engine::strokes::resize::{ImageSizeOption, Resize};
 use rnote_engine::strokes::textstroke::TextAttribute;
 use rnote_engine::zoomwindow::{BoxScale, BoxShift};
@@ -129,6 +130,8 @@ impl RnAppWindow {
         let action_slide_animate_here =
             gio::SimpleAction::new_stateful("slide-animate-here", None, &false.to_variant());
         self.add_action(&action_slide_animate_here);
+        let action_laser_tool = gio::SimpleAction::new("laser-tool", None);
+        self.add_action(&action_laser_tool);
         let action_export_doc = gio::SimpleAction::new("export-doc", None);
         self.add_action(&action_export_doc);
         let action_export_doc_pages = gio::SimpleAction::new("export-doc-pages", None);
@@ -1159,6 +1162,19 @@ impl RnAppWindow {
                 }
             ));
         }
+
+        // Pick the laser pointer among the tools, e.g. from the presentation window
+        action_laser_tool.connect_activate(clone!(
+            #[weak(rename_to=appwindow)]
+            self,
+            move |_, _| {
+                appwindow
+                    .overlays()
+                    .penssidebar()
+                    .tools_page()
+                    .set_tool_style(ToolStyle::Laser);
+            }
+        ));
 
         // Animate the slide in view on this screen against the setting; the button's state
         // follows the engine on every redraw.

@@ -431,6 +431,9 @@ impl RnAppWindow {
             SlidePauseButton::Pause
         };
         self.overlays().penssidebar().set_slide_pause_button(mode);
+        if let Some(window) = self.presentation_window() {
+            window.set_slide_control(canvas.engine_ref().slide_control());
+        }
     }
 
     /// Let the animate-here toggle show how this screen draws the slide in view.

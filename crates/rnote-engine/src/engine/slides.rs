@@ -27,6 +27,17 @@ use tracing::error;
 /// Key that steps forward, with Shift back, as in the browser player.
 const STEP_KEY: char = ' ';
 
+/// What one button controlling the slide in view does next, e.g. on the projector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlideControl {
+    /// Step forward: nothing runs, e.g. a slide halted at a stop.
+    Next,
+    /// Hold the animation running.
+    Pause,
+    /// Let the animation paused mid-way play on.
+    Play,
+}
+
 /// What the lecturer's own screen shows of the slides the audience sees animate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename = "lecturer_slides")]
@@ -134,6 +145,20 @@ impl Engine {
         };
         self.slides.flip(key);
         redraw()
+    }
+
+    /// What one control button does next for the slide in view.
+    pub fn slide_control(&self) -> SlideControl {
+        let Some(key) = self.slide_in_view() else {
+            return SlideControl::Next;
+        };
+        if self.slides.position(key) == Position::Playing {
+            return SlideControl::Pause;
+        }
+        if self.slides.paused_mid_part(key) {
+            return SlideControl::Play;
+        }
+        SlideControl::Next
     }
 
     /// Step with the Space key: forward, with Shift back. `None` when the key is not for slides.
@@ -519,6 +544,33 @@ mod tests {
         assert_eq!(second, first);
 
         assert_eq!(engine.slides.position(second), Position::Unplayed);
+    }
+
+    /// Run frames until the slide in view plays, once decoded in the background.
+    fn play_decoded(engine: &mut Engine) {
+        let _ = engine.slide_forward();
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        while !engine.slides_playing() && Instant::now() < deadline {
+            let _ = engine.slides_handle_frame();
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn control_steps_unless_an_animation_runs_or_is_paused() {
+        let (mut engine, _) = engine_with_slides();
+        assert_eq!(engine.slide_control(), SlideControl::Next);
+
+        play_decoded(&mut engine);
+        assert_eq!(engine.slide_control(), SlideControl::Pause);
+
+        // Paused mid-animation, it plays on; halted at its end, it steps.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let _ = engine.slide_pause();
+        assert_eq!(engine.slide_control(), SlideControl::Play);
+        let _ = engine.slide_pause();
+        let _ = engine.slide_forward();
+        assert_eq!(engine.slide_control(), SlideControl::Next);
     }
 
     #[test]
