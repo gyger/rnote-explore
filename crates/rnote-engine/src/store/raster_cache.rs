@@ -327,6 +327,16 @@ impl RasterCache {
         }));
     }
 
+    /// The raster last made of `stroke`, of whatever frame or zoom: what the view showed of
+    /// it before. `None` for another stroke under the same key.
+    fn last_node(&self, key: StrokeKey, stroke: &Arc<Stroke>) -> Option<gtk4::gsk::RenderNode> {
+        self.entries
+            .borrow()
+            .get(&key)
+            .filter(|entry| Arc::ptr_eq(&entry.subject.stroke, stroke))
+            .map(|entry| entry.node.clone())
+    }
+
     /// Whether the raster of the stroke is being made.
     fn awaits(&self, key: StrokeKey) -> bool {
         self.orders
@@ -405,12 +415,13 @@ pub(crate) struct LiveCanvas<'a> {
 
 /// How the main canvas shows a live stroke.
 pub(crate) enum LiveNode {
-    /// The cached raster of the still frame it stands on.
+    /// A cached raster: of the still frame it stands on, or of the last one shown while
+    /// that is made.
     Still(gtk4::gsk::RenderNode),
-    /// Its still frame is being rasterized off the UI thread: the stored rendering stands in.
+    /// Never shown and not decoded yet: the stored rendering stands in.
     Pending,
-    /// It moves: drawn immediate.
-    Moving,
+    /// Drawn directly: it moves, or its frame is decoded but has no raster yet.
+    Direct,
 }
 
 /// What a raster of a stroke shows.
@@ -445,7 +456,7 @@ impl StrokeStore {
         canvas: &LiveCanvas,
     ) -> LiveNode {
         let Pose::Still(frame) = Pose::of(canvas.live, key, stroke) else {
-            return LiveNode::Moving;
+            return LiveNode::Direct;
         };
 
         let (viewport, image_scale) = (canvas.camera.viewport(), canvas.camera.image_scale());
@@ -471,9 +482,18 @@ impl StrokeStore {
                 still,
                 canvas.tasks_tx,
             );
-            return LiveNode::Pending;
+
+            // Meanwhile no stand-in that jumps: a decoded frame, e.g. a slide halting at a
+            // stop, is drawn directly; else the last frame shown stays.
+            if canvas.live.drawable_now(key, stroke) {
+                return LiveNode::Direct;
+            }
+            return match canvas.cache.last_node(key, stroke) {
+                Some(node) => LiveNode::Still(node),
+                None => LiveNode::Pending,
+            };
         }
-        LiveNode::Moving
+        LiveNode::Direct
     }
 
     /// Order the rasters of the strokes in `viewport` that `cache` lacks; they arrive through
@@ -556,43 +576,49 @@ impl StrokeStore {
         };
 
         // Strokes in stacking order; uncached ones are batched into runs.
-        let draw_keys = |keys: &[StrokeKey],
-                         shown: &mut HashSet<StrokeKey>|
-         -> anyhow::Result<()> {
-            let mut run = Vec::new();
-            for &key in keys {
-                let Some(stroke) = self.stroke_components.get(key) else {
-                    continue;
-                };
-                // A live stroke is cached only while it stands still.
-                let still = match Pose::of(live, key, stroke) {
-                    Pose::Plain => None,
-                    Pose::Still(frame) => Some((frame, live)),
-                    Pose::Moving => {
-                        run.push(key);
+        let draw_keys =
+            |keys: &[StrokeKey], shown: &mut HashSet<StrokeKey>| -> anyhow::Result<()> {
+                let mut run = Vec::new();
+                for &key in keys {
+                    let Some(stroke) = self.stroke_components.get(key) else {
                         continue;
-                    }
-                };
-                let Some(node) = cache.node(key, stroke, viewport, image_scale, pen, still)? else {
-                    // A slide not decoded yet is left out until its raster arrives.
-                    if still.is_some() && !live.drawable_now(key, stroke) {
-                        continue;
-                    }
-                    run.push(key);
-                    continue;
-                };
-                draw_run(&mut run)?;
-                shown.insert(key);
+                    };
+                    // A live stroke is cached only while it stands still.
+                    let still = match Pose::of(live, key, stroke) {
+                        Pose::Plain => None,
+                        Pose::Still(frame) => Some((frame, live)),
+                        Pose::Moving => {
+                            run.push(key);
+                            continue;
+                        }
+                    };
+                    let node = match cache.node(key, stroke, viewport, image_scale, pen, still)? {
+                        Some(node) => node,
+                        // A slide not decoded yet keeps its last frame shown until its raster
+                        // arrives; one never shown is left out meanwhile.
+                        None if still.is_some() && !live.drawable_now(key, stroke) => {
+                            let Some(node) = cache.last_node(key, stroke) else {
+                                continue;
+                            };
+                            node
+                        }
+                        None => {
+                            run.push(key);
+                            continue;
+                        }
+                    };
+                    draw_run(&mut run)?;
+                    shown.insert(key);
 
-                snapshot.save();
-                snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
-                snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
-                snapshot.append_node(&node);
-                snapshot.pop();
-                snapshot.restore();
-            }
-            draw_run(&mut run)
-        };
+                    snapshot.save();
+                    snapshot.transform(Some(&camera.transform_for_gtk_snapshot()));
+                    snapshot.push_clip(&graphene::Rect::from_p2d_aabb(clip));
+                    snapshot.append_node(&node);
+                    snapshot.pop();
+                    snapshot.restore();
+                }
+                draw_run(&mut run)
+            };
 
         // Markers multiply with the paper and everything below, as on the main canvas:
         //   Blend(bottom: Blend(bottom: paper + ink, top: marker 1), top: marker 2)
@@ -910,7 +936,11 @@ mod tests {
         on_gtk_thread(|| {
             let (store, key) = store_with_stroke();
             let stroke = store.stroke_components.get(key).unwrap();
-            let (cache, live) = (RasterCache::in_background(), StillLive::default());
+            let cache = RasterCache::in_background();
+            let live = StillLive {
+                undecoded: true,
+                ..StillLive::default()
+            };
             let mut engine = crate::Engine::default();
             let tasks_tx = engine.engine_tasks_tx();
             let canvas = LiveCanvas {
@@ -934,6 +964,38 @@ mod tests {
                 store.live_still_node(key, stroke, &canvas),
                 LiveNode::Still(_)
             ));
+
+            // Its next frame, not decoded either, keeps the last one shown until it arrives.
+            live.frame.set(1);
+            assert!(matches!(
+                store.live_still_node(key, stroke, &canvas),
+                LiveNode::Still(_)
+            ));
+            assert_eq!(live.drawn.get(), 0);
+        });
+    }
+
+    /// A playing slide halting at a stop shows that frame at once, drawn directly while its
+    /// raster is made, never the stored end state.
+    #[test]
+    fn halted_decoded_slide_is_drawn_at_once() {
+        on_gtk_thread(|| {
+            let (store, key) = store_with_stroke();
+            let (cache, live) = (RasterCache::in_background(), StillLive::default());
+            let engine = crate::Engine::default();
+            let tasks_tx = engine.engine_tasks_tx();
+            let canvas = LiveCanvas {
+                live: &live,
+                cache: &cache,
+                camera: &Camera::default(),
+                pen: PenProgress::Idle,
+                tasks_tx: &tasks_tx,
+            };
+
+            let snapshot = gtk4::Snapshot::new();
+            store.draw_stroke_key_to_gtk_snapshot(&snapshot, key, &canvas);
+            assert_eq!(live.drawn.get(), 1);
+            assert!(cache.awaits(key));
         });
     }
 

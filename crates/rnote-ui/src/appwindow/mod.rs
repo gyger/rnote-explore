@@ -434,7 +434,7 @@ impl RnAppWindow {
     }
 
     /// Let the animate-here toggle show how this screen draws the slide in view.
-    fn refresh_slide_animate(&self, canvas: &RnCanvas) {
+    pub(crate) fn refresh_slide_animate(&self, canvas: &RnCanvas) {
         let Some(action) = self.presentation_action("slide-animate-here") else {
             return;
         };

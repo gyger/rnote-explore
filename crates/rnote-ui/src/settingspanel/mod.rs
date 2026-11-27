@@ -655,6 +655,7 @@ impl RnSettingsPanel {
                 appwindow.engine_config().write().lecturer_slides = lecturer_slides;
                 if let Some(canvas) = appwindow.active_tab_canvas() {
                     canvas.queue_draw();
+                    appwindow.refresh_slide_animate(&canvas);
                 }
                 appwindow.overlays().zoomwindow().queue_redraw();
             }

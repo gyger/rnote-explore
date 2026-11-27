@@ -545,7 +545,7 @@ impl StrokeStore {
                 }
                 // Its still frame is on the way: the rendering below stands in.
                 LiveNode::Pending => {}
-                LiveNode::Moving => {
+                LiveNode::Direct => {
                     draw_live_immediate(snapshot, key, stroke, canvas);
                     return;
                 }
